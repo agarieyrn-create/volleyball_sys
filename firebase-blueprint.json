@@ -1,0 +1,15 @@
+{
+  "entities": {
+    "TournamentState": {
+      "collection": "tournaments",
+      "fields": {
+        "schemaVersion": { "type": "number", "required": true },
+        "settings": { "type": "object", "required": true },
+        "teams": { "type": "array", "required": true },
+        "matches": { "type": "array", "required": true },
+        "updatedAt": { "type": "string", "required": true },
+        "updatedBy": { "type": "string", "required": false }
+      }
+    }
+  }
+}

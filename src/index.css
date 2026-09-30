@@ -1,0 +1,432 @@
+@import "tailwindcss";
+
+@variant dark (&:where(.dark, .dark *));
+
+:root {
+  --color-bg: #09090b;
+  --color-card: #151518;
+  --color-card-border: #27272f;
+  --color-text: #fafafa;
+  --color-text-muted: #a1a1aa;
+  --color-primary: #6366f1;
+  --color-primary-hover: #4f46e5;
+  --color-accent: #06b6d4;
+  --color-winner-bg: rgba(245, 158, 11, 0.15);
+  --color-winner-border: #f59e0b;
+}
+
+/* ==========================================================================
+   1. MIDNIGHT CYBER (漆黒のサイバーダーク・エレクトリックブルー)
+   ========================================================================== */
+[data-theme="midnight"] {
+  color-scheme: dark;
+}
+[data-theme="midnight"] body {
+  background-color: #09090b !important;
+  color: #fafafa !important;
+}
+/* Cards & Containers */
+[data-theme="midnight"] .bg-white,
+[data-theme="midnight"] .dark\:bg-zinc-900,
+[data-theme="midnight"] .dark\:bg-zinc-950,
+[data-theme="midnight"] .bg-zinc-900,
+[data-theme="midnight"] .bg-zinc-900\/90,
+[data-theme="midnight"] .bg-zinc-900\/80 {
+  background-color: #141418 !important;
+  border-color: #272732 !important;
+  color: #fafafa !important;
+}
+[data-theme="midnight"] .bg-zinc-50,
+[data-theme="midnight"] .dark\:bg-zinc-800,
+[data-theme="midnight"] .dark\:bg-zinc-800\/60,
+[data-theme="midnight"] .dark\:bg-zinc-800\/50,
+[data-theme="midnight"] .dark\:bg-zinc-800\/40,
+[data-theme="midnight"] .dark\:bg-zinc-800\/30,
+[data-theme="midnight"] .bg-zinc-800 {
+  background-color: #1d1d24 !important;
+  border-color: #31313e !important;
+  color: #f4f4f5 !important;
+}
+/* Borders */
+[data-theme="midnight"] .border-zinc-200,
+[data-theme="midnight"] .dark\:border-zinc-800,
+[data-theme="midnight"] .dark\:border-zinc-700,
+[data-theme="midnight"] .border-zinc-100,
+[data-theme="midnight"] .border-zinc-700,
+[data-theme="midnight"] .border-zinc-800 {
+  border-color: #272732 !important;
+}
+/* Texts */
+[data-theme="midnight"] .text-zinc-900,
+[data-theme="midnight"] .dark\:text-zinc-100,
+[data-theme="midnight"] .text-zinc-100 {
+  color: #ffffff !important;
+}
+[data-theme="midnight"] .text-zinc-500,
+[data-theme="midnight"] .dark\:text-zinc-400,
+[data-theme="midnight"] .text-zinc-400,
+[data-theme="midnight"] .text-zinc-600 {
+  color: #a1a1aa !important;
+}
+/* Accents & Buttons */
+[data-theme="midnight"] .bg-indigo-600,
+[data-theme="midnight"] .bg-indigo-500 {
+  background-color: #6366f1 !important;
+  color: #ffffff !important;
+}
+[data-theme="midnight"] .text-indigo-600,
+[data-theme="midnight"] .text-indigo-400 {
+  color: #818cf8 !important;
+}
+[data-theme="midnight"] .bg-indigo-50,
+[data-theme="midnight"] .dark\:bg-indigo-950,
+[data-theme="midnight"] .dark\:bg-indigo-950\/60 {
+  background-color: rgba(99, 102, 241, 0.15) !important;
+}
+[data-theme="midnight"] .border-indigo-200,
+[data-theme="midnight"] .dark\:border-indigo-800 {
+  border-color: rgba(99, 102, 241, 0.35) !important;
+}
+
+/* ==========================================================================
+   2. COURT CLASSIC (体育館クラシックウッド・温もりとオレンジ＆ネイビー)
+   ========================================================================== */
+[data-theme="court"] {
+  color-scheme: light;
+}
+[data-theme="court"] body {
+  background-color: #f7f1e6 !important;
+  color: #2a1c13 !important;
+}
+/* Cards & Containers: 明るく温かみのあるフロアウッド調 */
+[data-theme="court"] .bg-white,
+[data-theme="court"] .dark\:bg-zinc-900,
+[data-theme="court"] .dark\:bg-zinc-950,
+[data-theme="court"] .bg-zinc-900,
+[data-theme="court"] .bg-zinc-900\/90,
+[data-theme="court"] .bg-zinc-900\/80 {
+  background-color: #fffdf9 !important;
+  border-color: #e5d4be !important;
+  color: #2a1c13 !important;
+  box-shadow: 0 2px 10px rgba(78, 52, 34, 0.04) !important;
+}
+[data-theme="court"] .bg-zinc-50,
+[data-theme="court"] .dark\:bg-zinc-800,
+[data-theme="court"] .dark\:bg-zinc-800\/60,
+[data-theme="court"] .dark\:bg-zinc-800\/50,
+[data-theme="court"] .dark\:bg-zinc-800\/40,
+[data-theme="court"] .dark\:bg-zinc-800\/30,
+[data-theme="court"] .bg-zinc-800 {
+  background-color: #f9f2e6 !important;
+  border-color: #ded0b9 !important;
+  color: #3b281d !important;
+}
+/* Borders */
+[data-theme="court"] .border-zinc-200,
+[data-theme="court"] .dark\:border-zinc-800,
+[data-theme="court"] .dark\:border-zinc-700,
+[data-theme="court"] .border-zinc-100,
+[data-theme="court"] .border-zinc-700,
+[data-theme="court"] .border-zinc-800 {
+  border-color: #e5d4be !important;
+}
+/* Texts: リッチな深煎りエスプレッソ＆モカブラウン */
+[data-theme="court"] .text-zinc-900,
+[data-theme="court"] .dark\:text-zinc-100,
+[data-theme="court"] .text-zinc-100 {
+  color: #1a0f07 !important;
+}
+[data-theme="court"] .text-zinc-500,
+[data-theme="court"] .dark\:text-zinc-400,
+[data-theme="court"] .text-zinc-400,
+[data-theme="court"] .text-zinc-600 {
+  color: #715b49 !important;
+}
+/* Accents & Buttons: 公式球・コートの王道オレンジ */
+[data-theme="court"] .bg-indigo-600,
+[data-theme="court"] .bg-indigo-500 {
+  background-color: #ea580c !important;
+  color: #ffffff !important;
+}
+[data-theme="court"] .text-indigo-600,
+[data-theme="court"] .text-indigo-400 {
+  color: #ea580c !important;
+}
+[data-theme="court"] .bg-indigo-50,
+[data-theme="court"] .dark\:bg-indigo-950,
+[data-theme="court"] .dark\:bg-indigo-950\/60 {
+  background-color: #ffedd5 !important;
+}
+[data-theme="court"] .border-indigo-200,
+[data-theme="court"] .dark\:border-indigo-800 {
+  border-color: #fed7aa !important;
+}
+
+/* ==========================================================================
+   3. OCEAN BLUE (オーシャンブルー・爽快スカイブルー＆クリーンホワイト - 非ダーク)
+   ========================================================================== */
+[data-theme="ocean"],
+[data-theme="sunset"] {
+  color-scheme: light;
+}
+[data-theme="ocean"] body,
+[data-theme="sunset"] body {
+  background-color: #f0f7ff !important;
+  color: #0c2b4e !important;
+}
+/* Cards & Containers: 清潔感あるホワイト＆スカイブルーボーダー */
+[data-theme="ocean"] .bg-white,
+[data-theme="sunset"] .bg-white,
+[data-theme="ocean"] .dark\:bg-zinc-900,
+[data-theme="sunset"] .dark\:bg-zinc-900,
+[data-theme="ocean"] .dark\:bg-zinc-950,
+[data-theme="sunset"] .dark\:bg-zinc-950,
+[data-theme="ocean"] .bg-zinc-900,
+[data-theme="sunset"] .bg-zinc-900,
+[data-theme="ocean"] .bg-zinc-900\/90,
+[data-theme="sunset"] .bg-zinc-900\/90,
+[data-theme="ocean"] .bg-zinc-900\/80,
+[data-theme="sunset"] .bg-zinc-900\/80 {
+  background-color: #ffffff !important;
+  border-color: #bae6fd !important;
+  color: #0c2b4e !important;
+  box-shadow: 0 2px 12px rgba(2, 132, 199, 0.08) !important;
+}
+[data-theme="ocean"] .bg-zinc-50,
+[data-theme="sunset"] .bg-zinc-50,
+[data-theme="ocean"] .dark\:bg-zinc-800,
+[data-theme="sunset"] .dark\:bg-zinc-800,
+[data-theme="ocean"] .dark\:bg-zinc-800\/60,
+[data-theme="sunset"] .dark\:bg-zinc-800\/60,
+[data-theme="ocean"] .dark\:bg-zinc-800\/50,
+[data-theme="sunset"] .dark\:bg-zinc-800\/50,
+[data-theme="ocean"] .dark\:bg-zinc-800\/40,
+[data-theme="sunset"] .dark\:bg-zinc-800\/40,
+[data-theme="ocean"] .dark\:bg-zinc-800\/30,
+[data-theme="sunset"] .dark\:bg-zinc-800\/30,
+[data-theme="ocean"] .bg-zinc-800,
+[data-theme="sunset"] .bg-zinc-800 {
+  background-color: #e0f2fe !important;
+  border-color: #bae6fd !important;
+  color: #0369a1 !important;
+}
+/* Borders */
+[data-theme="ocean"] .border-zinc-200,
+[data-theme="sunset"] .border-zinc-200,
+[data-theme="ocean"] .dark\:border-zinc-800,
+[data-theme="sunset"] .dark\:border-zinc-800,
+[data-theme="ocean"] .dark\:border-zinc-700,
+[data-theme="sunset"] .dark\:border-zinc-700,
+[data-theme="ocean"] .border-zinc-100,
+[data-theme="sunset"] .border-zinc-100,
+[data-theme="ocean"] .border-zinc-700,
+[data-theme="sunset"] .border-zinc-700,
+[data-theme="ocean"] .border-zinc-800,
+[data-theme="sunset"] .border-zinc-800 {
+  border-color: #bae6fd !important;
+}
+/* Texts: 鮮明なディープネイビー＆スチールブルー */
+[data-theme="ocean"] .text-zinc-900,
+[data-theme="sunset"] .text-zinc-900,
+[data-theme="ocean"] .dark\:text-zinc-100,
+[data-theme="sunset"] .dark\:text-zinc-100,
+[data-theme="ocean"] .text-zinc-100,
+[data-theme="sunset"] .text-zinc-100 {
+  color: #0c2b4e !important;
+}
+[data-theme="ocean"] .text-zinc-500,
+[data-theme="sunset"] .text-zinc-500,
+[data-theme="ocean"] .dark\:text-zinc-400,
+[data-theme="sunset"] .dark\:text-zinc-400,
+[data-theme="ocean"] .text-zinc-400,
+[data-theme="sunset"] .text-zinc-400,
+[data-theme="ocean"] .text-zinc-600,
+[data-theme="sunset"] .text-zinc-600 {
+  color: #3b6998 !important;
+}
+/* Accents & Buttons: 爽快なオーシャンブルー */
+[data-theme="ocean"] .bg-indigo-600,
+[data-theme="sunset"] .bg-indigo-600,
+[data-theme="ocean"] .bg-indigo-500,
+[data-theme="sunset"] .bg-indigo-500 {
+  background-color: #0284c7 !important;
+  color: #ffffff !important;
+}
+[data-theme="ocean"] .text-indigo-600,
+[data-theme="sunset"] .text-indigo-600,
+[data-theme="ocean"] .text-indigo-400,
+[data-theme="sunset"] .text-indigo-400 {
+  color: #0284c7 !important;
+}
+[data-theme="ocean"] .bg-indigo-50,
+[data-theme="sunset"] .bg-indigo-50,
+[data-theme="ocean"] .dark\:bg-indigo-950,
+[data-theme="sunset"] .dark\:bg-indigo-950,
+[data-theme="ocean"] .dark\:bg-indigo-950\/60,
+[data-theme="sunset"] .dark\:bg-indigo-950\/60 {
+  background-color: #e0f2fe !important;
+}
+[data-theme="ocean"] .border-indigo-200,
+[data-theme="sunset"] .border-indigo-200,
+[data-theme="ocean"] .dark\:border-indigo-800,
+[data-theme="sunset"] .dark\:border-indigo-800 {
+  border-color: #7dd3fc !important;
+}
+
+/* ==========================================================================
+   4. EMERALD / MINT ARENA (ミントアリーナ・爽快スポーティグリーン＆白)
+   ========================================================================== */
+[data-theme="emerald"] {
+  color-scheme: light;
+}
+[data-theme="emerald"] body {
+  background-color: #eaf6ee !important;
+  color: #064e3b !important;
+}
+/* Cards & Containers: クリーンホワイト＆ミントグリーン枠 */
+[data-theme="emerald"] .bg-white,
+[data-theme="emerald"] .dark\:bg-zinc-900,
+[data-theme="emerald"] .dark\:bg-zinc-950,
+[data-theme="emerald"] .bg-zinc-900,
+[data-theme="emerald"] .bg-zinc-900\/90,
+[data-theme="emerald"] .bg-zinc-900\/80 {
+  background-color: #ffffff !important;
+  border-color: #b9e3c5 !important;
+  color: #064e3b !important;
+  box-shadow: 0 2px 10px rgba(6, 78, 59, 0.04) !important;
+}
+[data-theme="emerald"] .bg-zinc-50,
+[data-theme="emerald"] .dark\:bg-zinc-800,
+[data-theme="emerald"] .dark\:bg-zinc-800\/60,
+[data-theme="emerald"] .dark\:bg-zinc-800\/50,
+[data-theme="emerald"] .dark\:bg-zinc-800\/40,
+[data-theme="emerald"] .dark\:bg-zinc-800\/30,
+[data-theme="emerald"] .bg-zinc-800 {
+  background-color: #f1f9f4 !important;
+  border-color: #aed9bc !important;
+  color: #064e3b !important;
+}
+/* Borders */
+[data-theme="emerald"] .border-zinc-200,
+[data-theme="emerald"] .dark\:border-zinc-800,
+[data-theme="emerald"] .dark\:border-zinc-700,
+[data-theme="emerald"] .border-zinc-100,
+[data-theme="emerald"] .border-zinc-700,
+[data-theme="emerald"] .border-zinc-800 {
+  border-color: #b9e3c5 !important;
+}
+/* Texts: 深いフォレストパイン＆セージグリーン */
+[data-theme="emerald"] .text-zinc-900,
+[data-theme="emerald"] .dark\:text-zinc-100,
+[data-theme="emerald"] .text-zinc-100 {
+  color: #022c22 !important;
+}
+[data-theme="emerald"] .text-zinc-500,
+[data-theme="emerald"] .dark\:text-zinc-400,
+[data-theme="emerald"] .text-zinc-400,
+[data-theme="emerald"] .text-zinc-600 {
+  color: #166534 !important;
+}
+/* Accents & Buttons: 鮮快なエメラルドグリーン */
+[data-theme="emerald"] .bg-indigo-600,
+[data-theme="emerald"] .bg-indigo-500 {
+  background-color: #059669 !important;
+  color: #ffffff !important;
+}
+[data-theme="emerald"] .text-indigo-600,
+[data-theme="emerald"] .text-indigo-400 {
+  color: #059669 !important;
+}
+[data-theme="emerald"] .bg-indigo-50,
+[data-theme="emerald"] .dark\:bg-indigo-950,
+[data-theme="emerald"] .dark\:bg-indigo-950\/60 {
+  background-color: #dcfce7 !important;
+}
+[data-theme="emerald"] .border-indigo-200,
+[data-theme="emerald"] .dark\:border-indigo-800 {
+  border-color: #86efac !important;
+}
+
+/* Ensure text-white always stays crisp white across all themes */
+.text-white,
+[data-theme] .text-white,
+[data-theme] button.text-white,
+[data-theme] span.text-white,
+[data-theme] div.text-white {
+  color: #ffffff !important;
+}
+
+/* ==========================================================================
+   MOBILE & TOUCH OPTIMIZATIONS
+   ========================================================================== */
+/* Mobile touch responsiveness: eliminate double-tap 300ms delay */
+button,
+a,
+input,
+select {
+  touch-action: manipulation;
+}
+
+/* Prevent accidental text highlight selection during rapid score tapping */
+button {
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+/* Mobile safe area utility */
+.safe-area-bottom {
+  padding-bottom: max(env(safe-area-inset-bottom, 0px), 12px);
+}
+
+/* Custom hide scrollbar utility for clean mobile horizontal tab scrolling */
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
+}
+.no-scrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+
+@keyframes floatUp {
+  0% {
+    opacity: 1;
+    transform: translate(0, 0) scale(0.8);
+  }
+  50% {
+    opacity: 0.9;
+    transform: translate(var(--float-x, 0px), -45px) scale(1.2);
+  }
+  100% {
+    opacity: 0;
+    transform: translate(var(--float-x, 0px), -90px) scale(1.4);
+  }
+}
+
+.animate-float-up {
+  animation: floatUp 0.9s cubic-bezier(0.22, 1, 0.36, 1) forwards;
+}
+
+/* Smooth scrolling for anchor targets */
+html {
+  scroll-behavior: smooth;
+  -webkit-tap-highlight-color: transparent;
+}
+
+@media print {
+  body {
+    background: #ffffff !important;
+    color: #000000 !important;
+  }
+  .no-print {
+    display: none !important;
+  }
+  .print-only {
+    display: block !important;
+  }
+  @page {
+    size: A4 landscape;
+    margin: 10mm;
+  }
+}
+
+

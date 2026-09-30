@@ -1,0 +1,6 @@
+{
+  "name": "社内バレーボール大会運営",
+  "description": "社内バレーボール大会の予選リーグ・決勝トーナメント・順位・リアルタイムスコアボードを管理するWebアプリケーション",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
