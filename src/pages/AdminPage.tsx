@@ -276,6 +276,14 @@ export const AdminPage: React.FC = () => {
 
   // チーム削除（自前モーダルで安全に確認）
   const handleDeleteTeam = (id: string, teamName: string) => {
+    const hasCompletedMatches = state.matches.some((match) =>
+      match.status === 'completed' && (match.team1Id === id || match.team2Id === id)
+    );
+    if (hasCompletedMatches) {
+      showToast('完了済み試合の記録を保つため、このチームは削除できません');
+      return;
+    }
+
     setConfirmConfig({
       isOpen: true,
       title: 'チームの削除',
@@ -1143,6 +1151,7 @@ export const AdminPage: React.FC = () => {
                   <BracketView
                     matches={matches}
                     teams={teams}
+                    settings={settings}
                     onMatchClick={handleOpenScoreModal}
                     onManualEditClick={handleOpenManualEditModal}
                     isDark={false}
