@@ -1104,6 +1104,25 @@ export function seedOfficialTournament(
   matches: Match[],
   standings: Standing[]
 ): Match[] {
+  const assignParticipants = (
+    match: Match,
+    team1Id: string | null,
+    team2Id: string | null,
+    extra: Partial<Match> = {}
+  ): Match => {
+    const participantsChanged = match.team1Id !== team1Id || match.team2Id !== team2Id;
+    const updated = { ...match, ...extra, team1Id, team2Id };
+    if (!participantsChanged) return updated;
+    return {
+      ...updated,
+      sets: match.sets.map(() => ({ team1: null, team2: null })),
+      team1Sets: 0,
+      team2Sets: 0,
+      winnerId: null,
+      status: 'pending',
+    };
+  };
+
   // 各プールの順位マップを作成: pool -> rank (1..4) -> teamId
   const poolRanks = new Map<string, Map<number, string>>();
   for (const s of standings) {
@@ -1154,110 +1173,67 @@ export function seedOfficialTournament(
       // --- 上ブロック (決勝トーナメント: 8チーム) ---
       // A5: A組2位 vs D組1位
       case 'A5':
-        return {
-          ...m,
-          team1Id: a2,
-          team2Id: d1,
-        };
+        return assignParticipants(m, a2, d1);
 
       // B5: C組1位 vs B組2位
       case 'B5':
-        return {
-          ...m,
-          team1Id: c1,
-          team2Id: b2,
-        };
+        return assignParticipants(m, c1, b2);
 
       // A6: B組1位 vs E組1位
       case 'A6':
-        return {
-          ...m,
-          team1Id: b1,
-          team2Id: e1,
-        };
+        return assignParticipants(m, b1, e1);
 
       // B6: A組1位 vs C/D/E組2位最上位（得失点の一番いいチーム）
       case 'B6':
-        return {
-          ...m,
-          team1Id: a1,
-          team2Id: bestCDE2nd?.teamId || null,
-        };
+        return assignParticipants(m, a1, bestCDE2nd?.teamId || null);
 
       // --- 下ブロック 交流X組 (Cコート: A3, 次点1, B4) ---
       case 'C5':
-        return {
-          ...m,
-          team1Id: a3,
-          team2Id: secondCDE2nd?.teamId || null,
+        return assignParticipants(m, a3, secondCDE2nd?.teamId || null, {
           referee: b4 ? teamNameById.get(b4) || m.referee : m.referee,
-        };
+        });
 
       case 'C6':
-        return {
-          ...m,
-          team1Id: secondCDE2nd?.teamId || null,
-          team2Id: b4,
+        return assignParticipants(m, secondCDE2nd?.teamId || null, b4, {
           referee: a3 ? teamNameById.get(a3) || m.referee : m.referee,
-        };
+        });
 
       case 'C7':
-        return {
-          ...m,
-          team1Id: a3,
-          team2Id: b4,
+        return assignParticipants(m, a3, b4, {
           referee: secondCDE2nd?.teamName || (secondCDE2nd?.teamId ? teamNameById.get(secondCDE2nd.teamId) : null) || m.referee,
-        };
+        });
 
       // --- 下ブロック 交流Y組 (Dコート: B3, 次点2, A4) ---
       case 'D5':
-        return {
-          ...m,
-          team1Id: b3,
-          team2Id: thirdCDE2nd?.teamId || null,
+        return assignParticipants(m, b3, thirdCDE2nd?.teamId || null, {
           referee: a4 ? teamNameById.get(a4) || m.referee : m.referee,
-        };
+        });
 
       case 'D6':
-        return {
-          ...m,
-          team1Id: thirdCDE2nd?.teamId || null,
-          team2Id: a4,
+        return assignParticipants(m, thirdCDE2nd?.teamId || null, a4, {
           referee: b3 ? teamNameById.get(b3) || m.referee : m.referee,
-        };
+        });
 
       case 'D7':
-        return {
-          ...m,
-          team1Id: b3,
-          team2Id: a4,
+        return assignParticipants(m, b3, a4, {
           referee: thirdCDE2nd?.teamName || (thirdCDE2nd?.teamId ? teamNameById.get(thirdCDE2nd.teamId) : null) || m.referee,
-        };
+        });
 
       // --- 下ブロック 交流Z組 (Eコート: C3, D3, E3) ---
       case 'E5':
-        return {
-          ...m,
-          team1Id: c3,
-          team2Id: d3,
+        return assignParticipants(m, c3, d3, {
           referee: e3 ? teamNameById.get(e3) || m.referee : m.referee,
-        };
+        });
 
       case 'E6':
-        return {
-          ...m,
-          team1Id: d3,
-          team2Id: e3,
+        return assignParticipants(m, d3, e3, {
           referee: c3 ? teamNameById.get(c3) || m.referee : m.referee,
-        };
+        });
 
       case 'E7':
-        return {
-          ...m,
-          team1Id: c3,
-          team2Id: e3,
+        return assignParticipants(m, c3, e3, {
           referee: d3 ? teamNameById.get(d3) || m.referee : m.referee,
-        };
+        });
 
       default:
         return m;
