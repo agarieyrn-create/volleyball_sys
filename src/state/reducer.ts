@@ -3,7 +3,7 @@ import { advanceWinner, generateFinalTournament } from '../logic/bracket';
 import { scheduleSimultaneousMatches } from '../logic/court';
 import { distributeTeams, generateLeagueMatches } from '../logic/league';
 import { autoAssignReferees } from '../logic/referee';
-import { evaluateMatch } from '../logic/score';
+import { evaluateMatch, getCountedSetScores, isValidSetScoreInput } from '../logic/score';
 import { computeLeagueStandings, selectFinalists } from '../logic/standings';
 import {
   ensureOfficialTournamentIntegrity,
@@ -35,6 +35,19 @@ export type TournamentAction =
   | { type: 'IMPORT'; payload: AppState }
   | { type: 'LOAD_OFFICIAL_TOURNAMENT' }
   | { type: 'RESET' };
+
+function normalizedScoreInput(sets: SetScore[], match: Match, settings: Settings): SetScore[] | null {
+  if (!isValidSetScoreInput(sets, settings.bestOf)) return null;
+  const extraSets = sets.slice(settings.bestOf);
+  if (extraSets.some((set) => set.team1 !== null || set.team2 !== null)) return null;
+  const normalized = sets.slice(0, settings.bestOf);
+  const result = evaluateMatch({ ...match, sets: normalized }, settings);
+  if (result.status === 'completed') {
+    const playedCount = getCountedSetScores({ ...match, sets: normalized }, settings).length;
+    return normalized.map((set, index) => index < playedCount ? set : { team1: null, team2: null });
+  }
+  return normalized;
+}
 
 /**
  * 試合群の評価とトーナメント進出連鎖を正規化
@@ -177,6 +190,11 @@ export function tournamentReducer(state: AppState, action: TournamentAction): Ap
 
     case 'DELETE_TEAM': {
       const { teamId } = action.payload;
+      if (state.matches.some((m) =>
+        m.status === 'completed' && (m.team1Id === teamId || m.team2Id === teamId)
+      )) {
+        return state;
+      }
       const nextTeams = state.teams.filter((t) => t.id !== teamId);
 
       // 試合データから削除されたチームの参照を安全化（未完了試合なら空枠化）
@@ -277,11 +295,13 @@ export function tournamentReducer(state: AppState, action: TournamentAction): Ap
     case 'SAVE_SCORE': {
       const { matchId, sets } = action.payload;
       const targetMatch = state.matches.find((m) => m.id === matchId);
-      if (!targetMatch) return state;
+      if (!targetMatch || targetMatch.status === 'bye') return state;
+      const safeSets = normalizedScoreInput(sets, targetMatch, state.settings);
+      if (!safeSets) return state;
 
       const updatedMatch: Match = {
         ...targetMatch,
-        sets,
+        sets: safeSets,
       };
 
       const evalRes = evaluateMatch(updatedMatch, state.settings);
@@ -432,13 +452,19 @@ export function tournamentReducer(state: AppState, action: TournamentAction): Ap
       const targetMatch = state.matches.find((m) => m.id === matchId);
       if (!targetMatch) return state;
 
+      const safeSets = updates.sets
+        ? normalizedScoreInput(updates.sets, targetMatch, state.settings)
+        : undefined;
+      if (updates.sets && !safeSets) return state;
+
       const mergedMatch: Match = {
         ...targetMatch,
         ...updates,
+        ...(safeSets ? { sets: safeSets } : {}),
       };
 
-      // スコアが手動入力された場合で、勝者が未指定の場合は evaluateMatch で自動算出
-      if (updates.sets && !updates.winnerId) {
+      // スコア入力時は保存済みのwinner/statusを信用せず、得点から再計算する。
+      if (safeSets) {
         const evalRes = evaluateMatch(mergedMatch, state.settings);
         mergedMatch.team1Sets = evalRes.team1Sets;
         mergedMatch.team2Sets = evalRes.team2Sets;
