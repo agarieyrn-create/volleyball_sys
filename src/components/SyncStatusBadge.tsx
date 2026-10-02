@@ -7,7 +7,7 @@ interface SyncStatusBadgeProps {
 }
 
 export const SyncStatusBadge: React.FC<SyncStatusBadgeProps> = () => {
-  const { state, deviceLabel, updateDeviceLabel, saveNow } = useTournament();
+  const { state, deviceLabel, updateDeviceLabel, saveNow, reloadLatest, syncError } = useTournament();
   const [isModalOpen, setIsModalOpen] = useState<boolean>(false);
   const [tempLabel, setTempLabel] = useState<string>(deviceLabel);
   const [isSaving, setIsSaving] = useState<boolean>(false);
@@ -48,14 +48,11 @@ export const SyncStatusBadge: React.FC<SyncStatusBadgeProps> = () => {
         <button
           type="button"
           onClick={handleOpenModal}
-          className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold bg-emerald-500/10 dark:bg-emerald-500/20 text-emerald-700 dark:text-emerald-300 border border-emerald-500/30 hover:bg-emerald-500/20 transition-colors cursor-pointer shrink-0 whitespace-nowrap"
+          className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold border transition-colors cursor-pointer shrink-0 whitespace-nowrap ${syncError ? 'bg-rose-500/10 dark:bg-rose-500/20 text-rose-700 dark:text-rose-300 border-rose-500/30 hover:bg-rose-500/20' : 'bg-emerald-500/10 dark:bg-emerald-500/20 text-emerald-700 dark:text-emerald-300 border-emerald-500/30 hover:bg-emerald-500/20'}`}
           title="複数端末のクラウド同期状況を確認・端末名を変更"
         >
-          <span className="relative flex h-2 w-2 shrink-0">
-            <span className="animate-ping absolute inline-flex h-full w-full rounded-full bg-emerald-400 opacity-75"></span>
-            <span className="relative inline-flex rounded-full h-2 w-2 bg-emerald-500"></span>
-          </span>
-          <span className="whitespace-nowrap shrink-0">{isFirebaseConfigured ? 'クラウド同期中' : 'ローカル同期'}</span>
+          <span className={`relative inline-flex h-2 w-2 shrink-0 rounded-full ${syncError ? 'bg-rose-500' : 'bg-emerald-500'}`} />
+          <span className="whitespace-nowrap shrink-0">{syncError ? '同期エラー' : isFirebaseConfigured ? 'クラウド同期中' : 'ローカル同期'}</span>
           {deviceLabel && (
             <span className="hidden sm:inline text-[10px] px-1.5 py-0.2 rounded bg-emerald-600/20 text-emerald-800 dark:text-emerald-200 font-mono shrink-0 whitespace-nowrap">
               {deviceLabel}
@@ -106,6 +103,20 @@ export const SyncStatusBadge: React.FC<SyncStatusBadgeProps> = () => {
             </div>
 
             <div className="space-y-2 text-xs text-zinc-600 dark:text-zinc-400">
+              {syncError && (
+                <div role="alert" className="rounded-xl border border-rose-300 bg-rose-50 p-3 text-rose-800 dark:border-rose-800 dark:bg-rose-950/40 dark:text-rose-200">
+                  <p className="font-bold">同期を停止しました</p>
+                  <p className="mt-1 leading-relaxed">{syncError}</p>
+                  <button
+                    type="button"
+                    onClick={() => void reloadLatest().catch((error) => console.error('Failed to reload shared state:', error))}
+                    className="mt-2 rounded-lg bg-rose-700 px-3 py-1.5 font-bold text-white hover:bg-rose-800"
+                  >
+                    最新データを読み込む
+                  </button>
+                  <p className="mt-1 text-[10px]">未保存の入力は再読み込みで破棄されます。必要な点数を控えてから押してください。</p>
+                </div>
+              )}
               <div className="flex justify-between py-1 border-b border-zinc-100 dark:border-zinc-800">
                 <span>最終更新時刻:</span>
                 <span className="font-mono font-bold text-zinc-900 dark:text-zinc-200">{lastUpdatedTime}</span>
