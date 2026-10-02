@@ -751,6 +751,7 @@ export const ViewerPage: React.FC = () => {
                 <BracketView
                   matches={matches}
                   teams={teams}
+                  settings={settings}
                   isDark={theme.isDark}
                   defaultView="tree"
                 />
