@@ -314,7 +314,7 @@ export const PrintSheetsModal: React.FC<PrintSheetsModalProps> = ({
               </div>
 
               <div className="border border-zinc-300 p-4 rounded-xl">
-                <BracketView matches={matches} teams={teams} hideControls={true} defaultView="tree" />
+                <BracketView matches={matches} teams={teams} settings={settings} hideControls={true} defaultView="tree" />
               </div>
             </div>
           )}
