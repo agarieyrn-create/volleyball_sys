@@ -7,7 +7,67 @@ import { validateAppState } from './validation';
 
 const TOURNAMENT_DOC_PATH = 'tournaments/main';
 const LOCAL_STORAGE_KEY = 'volleyball_tournament_main_state';
+const PENDING_LOCAL_STORAGE_KEY = 'volleyball_tournament_main_pending_state';
+const PENDING_TAB_ID_KEY = 'volleyball_tournament_main_pending_tab_id';
 const DEVICE_LABEL_KEY = 'volleyball_device_label';
+
+export interface PendingLocalSave {
+  state: AppState;
+  baseState: AppState | null;
+}
+
+function pendingLocalStorageKey(): string {
+  try {
+    let tabId = sessionStorage.getItem(PENDING_TAB_ID_KEY);
+    if (!tabId) {
+      tabId = typeof crypto !== 'undefined' && 'randomUUID' in crypto
+        ? crypto.randomUUID()
+        : `${Date.now()}-${Math.random().toString(36).slice(2)}`;
+      sessionStorage.setItem(PENDING_TAB_ID_KEY, tabId);
+    }
+    return `${PENDING_LOCAL_STORAGE_KEY}:${tabId}`;
+  } catch {
+    // sessionStorage が使えない環境では、同じ端末の共有キーに退避する。
+    return PENDING_LOCAL_STORAGE_KEY;
+  }
+}
+
+function savePendingLocal(state: AppState, baseState: AppState | null): void {
+  try {
+    localStorage.setItem(
+      pendingLocalStorageKey(),
+      JSON.stringify({ version: 1, state, baseState })
+    );
+  } catch (error) {
+    console.error('Failed to persist pending tournament state locally:', error);
+    throw new Error('未同期データを端末内に保存できませんでした。入力内容を別途控えてください。');
+  }
+}
+
+export function getPendingLocalSave(): PendingLocalSave | null {
+  const raw = localStorage.getItem(pendingLocalStorageKey());
+  if (!raw) return null;
+  try {
+    const parsed = JSON.parse(raw) as { version?: unknown; state?: unknown; baseState?: unknown };
+    if (parsed.version !== 1 || !parsed.state) throw new Error('形式が正しくありません。');
+    const state = validateAppState(parsed.state, { strictResults: true });
+    const baseState = parsed.baseState === null
+      ? null
+      : validateAppState(parsed.baseState);
+    return { state, baseState };
+  } catch (error) {
+    console.error('Pending tournament state is invalid and was left untouched:', error);
+    throw new Error('端末内の未同期データを読み込めません。データは削除していません。');
+  }
+}
+
+export function clearPendingLocalSave(): void {
+  try {
+    localStorage.removeItem(pendingLocalStorageKey());
+  } catch (error) {
+    console.warn('Failed to clear pending tournament state:', error);
+  }
+}
 
 export function getDeviceLabel(): string {
   try {
@@ -56,12 +116,13 @@ export function subscribe(
             }
           }
         } else {
-          // 初回のみ初期データを作成。既存データはトランザクションで保護する。
-          save(DEFAULT_APP_STATE, null).catch((error) => {
-            console.error('Failed to initialize tournament document:', error);
-            onError?.('大会データの初期化に失敗しました。');
-          });
-          callback(DEFAULT_APP_STATE);
+          // 初回保存は getOnce に一本化し、未同期の端末データを初期値で上書きしない。
+          try {
+            callback(loadLocal());
+          } catch (error) {
+            console.error('Local tournament fallback is invalid:', error);
+            onError?.('端末内の大会データを読み込めません。自動初期化は行っていません。');
+          }
         }
       },
       (error) => {
@@ -141,6 +202,8 @@ export async function save(state: AppState, baseState: AppState | null = null): 
 
   if (isFirebaseConfigured && db) {
     const docRef = doc(db, TOURNAMENT_DOC_PATH);
+    // 通信断でも画面を閉じた後に復元できるよう、Firestore transaction より先に保留保存する。
+    savePendingLocal(enrichedState, baseState);
     const savedState = await runTransaction(db, async (transaction) => {
       const snapshot = await transaction.get(docRef);
       if (!snapshot.exists()) {
@@ -168,6 +231,7 @@ export async function save(state: AppState, baseState: AppState | null = null): 
       return nextState;
     });
     saveLocal(savedState);
+    clearPendingLocalSave();
     return savedState;
   } else {
     saveLocal(enrichedState);
@@ -182,7 +246,7 @@ export async function save(state: AppState, baseState: AppState | null = null): 
 /**
  * 初回取得。無ければ defaults の AppState を作って書き込む。
  */
-export async function getOnce(): Promise<AppState> {
+export async function getOnce(options: { discardPending?: boolean; requireRemote?: boolean } = {}): Promise<AppState> {
   if (isFirebaseConfigured && db) {
     try {
       const docRef = doc(db, 'tournaments', 'main');
@@ -190,8 +254,19 @@ export async function getOnce(): Promise<AppState> {
       if (snapshot.exists()) {
         const data = validateAppState(snapshot.data());
         saveLocal(data);
+        if (options.discardPending) clearPendingLocalSave();
         return data;
       } else {
+        if (options.discardPending) {
+          // 共有データが存在しないことを確認できた場合のみ、明示的な再読込で保留分を破棄する。
+          clearPendingLocalSave();
+          saveLocal(DEFAULT_APP_STATE);
+          return DEFAULT_APP_STATE;
+        }
+        const pending = getPendingLocalSave();
+        if (pending) {
+          return await save(pending.state, pending.baseState);
+        }
         try {
           return await save(DEFAULT_APP_STATE, null);
         } catch (error) {
@@ -203,6 +278,7 @@ export async function getOnce(): Promise<AppState> {
         }
       }
     } catch (e) {
+      if (options.requireRemote) throw e;
       console.warn('getDoc failed, reading from local', e);
       return loadLocal();
     }

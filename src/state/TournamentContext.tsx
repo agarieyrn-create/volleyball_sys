@@ -1,6 +1,14 @@
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useReducer, useRef, useState } from 'react';
 import { DEFAULT_APP_STATE } from '../data/defaults';
-import { getDeviceLabel, getOnce, save, setDeviceLabel, subscribe } from '../data/repository';
+import {
+  clearPendingLocalSave,
+  getDeviceLabel,
+  getOnce,
+  getPendingLocalSave,
+  save,
+  setDeviceLabel,
+  subscribe,
+} from '../data/repository';
 import { computeStandings } from '../logic/standings';
 import { AppState, Standing } from '../types';
 import { TournamentAction, tournamentReducer } from './reducer';
@@ -83,10 +91,37 @@ export const TournamentProvider: React.FC<{ children: React.ReactNode }> = ({ ch
     getOnce().then((initialState) => {
       if (isMounted) {
         const latest = lastPersistedStateRef.current;
-        const selectedState = latest && new Date(latest.updatedAt).getTime() > new Date(initialState.updatedAt).getTime()
+        const confirmedState = latest && new Date(latest.updatedAt).getTime() > new Date(initialState.updatedAt).getTime()
           ? latest
           : initialState;
-        lastPersistedStateRef.current = selectedState;
+        lastPersistedStateRef.current = confirmedState;
+        let selectedState = confirmedState;
+        let pendingState: ReturnType<typeof getPendingLocalSave> = null;
+        try {
+          pendingState = getPendingLocalSave();
+          if (pendingState) {
+            if (pendingState.baseState) {
+              selectedState = mergeConcurrentStates(
+                pendingState.baseState,
+                pendingState.state,
+                confirmedState
+              );
+            } else if (hasSameTournamentData(pendingState.state, confirmedState)) {
+              selectedState = confirmedState;
+            } else {
+              throw new StateConflictError('未同期データ (保存元データが確認できません)');
+            }
+
+            if (hasSameTournamentData(selectedState, confirmedState)) {
+              clearPendingLocalSave();
+            }
+          }
+        } catch (error) {
+          syncBlockedRef.current = true;
+          const message = error instanceof Error ? error.message : '未同期データを復元できませんでした。';
+          setSyncError(`${message} 未同期データは端末に残しています。最新データと照合してください。`);
+          selectedState = pendingState?.state ?? confirmedState;
+        }
         dispatch({ type: 'INIT', payload: selectedState });
         setIsLoaded(true);
       }
@@ -165,7 +200,7 @@ export const TournamentProvider: React.FC<{ children: React.ReactNode }> = ({ ch
 
   const reloadLatest = async () => {
     try {
-      const latest = await getOnce();
+      const latest = await getOnce({ discardPending: true, requireRemote: true });
       lastPersistedStateRef.current = latest;
       syncBlockedRef.current = false;
       setSyncError(null);
