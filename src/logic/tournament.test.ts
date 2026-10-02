@@ -11,7 +11,7 @@ import {
   seedOfficialTournament,
 } from './officialTournament';
 import { autoAssignReferees } from './referee';
-import { evaluateMatch, isSetFinished } from './score';
+import { evaluateMatch, getCountedSetScores, isSetFinished } from './score';
 import {
   computeAllTeamsMatchProgress,
   computeLeagueStandings,
@@ -83,6 +83,38 @@ describe('score.ts', () => {
     expect(res.team2Sets).toBe(1);
     expect(res.winnerId).toBe('t1');
     expect(res.status).toBe('completed');
+  });
+
+  it('does not count sets after a gap or after the winner is decided', () => {
+    const template = DEFAULT_APP_STATE.matches.find((match) => match.round === 'league')!;
+    const gapResult = evaluateMatch({
+      ...template,
+      sets: [
+        { team1: 12, team2: 10 },
+        { team1: 25, team2: 10 },
+        { team1: 25, team2: 10 },
+      ],
+    }, defaultSettings);
+    expect(gapResult.status).toBe('pending');
+    expect(gapResult.team1Sets).toBe(0);
+
+    const completedMatch = {
+      ...template,
+      sets: [
+        { team1: 25, team2: 20 },
+        { team1: 25, team2: 20 },
+        { team1: 15, team2: 0 },
+      ],
+    };
+    const result = evaluateMatch(completedMatch, defaultSettings);
+    expect(result.status).toBe('completed');
+    expect(result.team1Sets).toBe(2);
+    expect(getCountedSetScores(completedMatch, defaultSettings)).toHaveLength(2);
+  });
+
+  it('rejects fractional scores as completed set results', () => {
+    expect(isSetFinished(25.5, 20, 25, 2)).toBe(false);
+    expect(isSetFinished(Number.NaN, 20, 25, 2)).toBe(false);
   });
 });
 
@@ -934,5 +966,43 @@ describe('tournamentReducer team management', () => {
     const teamA2 = DEFAULT_APP_STATE.teams.find((t) => t.id === 'team_a2')!;
     expect(a6.referee).toContain(teamA2.name);
   });
-});
 
+  it('ignores malformed score updates and keeps teams with completed match records', () => {
+    const firstLeagueMatch = DEFAULT_APP_STATE.matches.find((match) => match.round === 'league')!;
+    const invalidScoreState = tournamentReducer(DEFAULT_APP_STATE, {
+      type: 'SAVE_SCORE',
+      payload: {
+        matchId: firstLeagueMatch.id,
+        sets: [{ team1: 15.5, team2: 10 }, { team1: 15, team2: 10 }, { team1: null, team2: null }],
+      },
+    });
+    expect(invalidScoreState).toBe(DEFAULT_APP_STATE);
+
+    const completedState = tournamentReducer(DEFAULT_APP_STATE, {
+      type: 'SAVE_SCORE',
+      payload: {
+        matchId: firstLeagueMatch.id,
+        sets: [{ team1: 15, team2: 10 }, { team1: 15, team2: 10 }, { team1: null, team2: null }],
+      },
+    });
+    const teamId = firstLeagueMatch.team1Id!;
+    const afterDelete = tournamentReducer(completedState, {
+      type: 'DELETE_TEAM',
+      payload: { teamId },
+    });
+    expect(afterDelete.teams.some((team) => team.id === teamId)).toBe(true);
+    expect(afterDelete.matches.find((match) => match.id === firstLeagueMatch.id)?.winnerId).toBe(teamId);
+
+    const extraSetState = tournamentReducer(DEFAULT_APP_STATE, {
+      type: 'SAVE_SCORE',
+      payload: {
+        matchId: firstLeagueMatch.id,
+        sets: [{ team1: 15, team2: 10 }, { team1: 15, team2: 10 }, { team1: 10, team2: 15 }],
+      },
+    });
+    expect(extraSetState.matches.find((match) => match.id === firstLeagueMatch.id)?.sets[2]).toEqual({
+      team1: null,
+      team2: null,
+    });
+  });
+});
