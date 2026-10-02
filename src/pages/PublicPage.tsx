@@ -655,7 +655,7 @@ export const PublicPage: React.FC = () => {
           <div
             className={`p-3 sm:p-6 rounded-2xl ${theme.classes.cardBg} border ${theme.classes.cardBorder} overflow-x-auto`}
           >
-            <BracketView matches={matches} teams={teams} isDark={theme.isDark} />
+            <BracketView matches={matches} teams={teams} settings={settings} isDark={theme.isDark} />
           </div>
         </section>
 
