@@ -32,12 +32,27 @@ function pendingLocalStorageKey(): string {
   }
 }
 
+let activePendingLocalStorageKey: string | null = null;
+
+function listPendingLocalStorageKeys(): string[] {
+  const keys: string[] = [];
+  for (let index = 0; index < localStorage.length; index++) {
+    const key = localStorage.key(index);
+    if (key === PENDING_LOCAL_STORAGE_KEY || key?.startsWith(`${PENDING_LOCAL_STORAGE_KEY}:`)) {
+      keys.push(key);
+    }
+  }
+  return keys;
+}
+
 function savePendingLocal(state: AppState, baseState: AppState | null): void {
   try {
+    const key = activePendingLocalStorageKey || pendingLocalStorageKey();
     localStorage.setItem(
-      pendingLocalStorageKey(),
+      key,
       JSON.stringify({ version: 1, state, baseState })
     );
+    activePendingLocalStorageKey = key;
   } catch (error) {
     console.error('Failed to persist pending tournament state locally:', error);
     throw new Error('未同期データを端末内に保存できませんでした。入力内容を別途控えてください。');
@@ -45,7 +60,23 @@ function savePendingLocal(state: AppState, baseState: AppState | null): void {
 }
 
 export function getPendingLocalSave(): PendingLocalSave | null {
-  const raw = localStorage.getItem(pendingLocalStorageKey());
+  const currentKey = pendingLocalStorageKey();
+  const availableKeys = listPendingLocalStorageKeys();
+  const matchingKeys = [
+    ...(availableKeys.includes(currentKey) ? [currentKey] : []),
+    ...availableKeys.filter((key) => key !== currentKey),
+  ];
+  if (matchingKeys.length > 1) {
+    activePendingLocalStorageKey = null;
+    throw new Error('複数のタブに未同期データがあります。入力内容を確認してから再読み込みしてください。');
+  }
+  const storageKey = matchingKeys[0];
+  if (!storageKey) {
+    activePendingLocalStorageKey = null;
+    return null;
+  }
+  activePendingLocalStorageKey = storageKey;
+  const raw = localStorage.getItem(storageKey);
   if (!raw) return null;
   try {
     const parsed = JSON.parse(raw) as { version?: unknown; state?: unknown; baseState?: unknown };
@@ -61,9 +92,16 @@ export function getPendingLocalSave(): PendingLocalSave | null {
   }
 }
 
-export function clearPendingLocalSave(): void {
+export function clearPendingLocalSave(options: { all?: boolean } = {}): void {
   try {
-    localStorage.removeItem(pendingLocalStorageKey());
+    if (options.all) {
+      for (const key of listPendingLocalStorageKeys()) localStorage.removeItem(key);
+      activePendingLocalStorageKey = null;
+      return;
+    }
+    const key = activePendingLocalStorageKey || pendingLocalStorageKey();
+    localStorage.removeItem(key);
+    activePendingLocalStorageKey = null;
   } catch (error) {
     console.warn('Failed to clear pending tournament state:', error);
   }
@@ -254,12 +292,12 @@ export async function getOnce(options: { discardPending?: boolean; requireRemote
       if (snapshot.exists()) {
         const data = validateAppState(snapshot.data());
         saveLocal(data);
-        if (options.discardPending) clearPendingLocalSave();
+        if (options.discardPending) clearPendingLocalSave({ all: true });
         return data;
       } else {
         if (options.discardPending) {
           // 共有データが存在しないことを確認できた場合のみ、明示的な再読込で保留分を破棄する。
-          clearPendingLocalSave();
+          clearPendingLocalSave({ all: true });
           saveLocal(DEFAULT_APP_STATE);
           return DEFAULT_APP_STATE;
         }

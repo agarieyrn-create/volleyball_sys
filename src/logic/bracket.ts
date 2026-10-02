@@ -7,6 +7,43 @@ export interface SeedPair {
   team2: Team | null;
 }
 
+function getIncomingMatches(matches: Map<string, Match>, matchId: string, slot: 1 | 2): Match[] {
+  return Array.from(matches.values()).filter(
+    (source) =>
+      (source.nextMatchId === matchId && source.nextSlot === slot) ||
+      (source.loserToMatchId === matchId && source.loserToSlot === slot)
+  );
+}
+
+/** Check unresolved feeder paths recursively before treating an empty slot as a bye. */
+function canSlotReceiveTeam(
+  matches: Map<string, Match>,
+  match: Match,
+  slot: 1 | 2,
+  visited = new Set<string>()
+): boolean {
+  if (slot === 1 ? Boolean(match.team1Id) : Boolean(match.team2Id)) return true;
+
+  const key = `${match.id}:${slot}`;
+  if (visited.has(key)) return true; // A malformed cycle must not create a false bye.
+  const nextVisited = new Set(visited).add(key);
+  return getIncomingMatches(matches, match.id, slot).some((source) =>
+    canMatchProduceTeam(matches, source, nextVisited)
+  );
+}
+
+function canMatchProduceTeam(
+  matches: Map<string, Match>,
+  match: Match,
+  visited: Set<string>
+): boolean {
+  if ((match.status === 'completed' || match.status === 'bye') && match.winnerId) return true;
+  return (
+    canSlotReceiveTeam(matches, match, 1, visited) ||
+    canSlotReceiveTeam(matches, match, 2, visited)
+  );
+}
+
 function resetMatchForParticipants(
   match: Match,
   team1Id: string | null,
@@ -348,15 +385,7 @@ export function advanceWinner(
       const hasOneTeam = Boolean(m.team1Id) !== Boolean(m.team2Id);
       if (hasOneTeam) {
         const missingSlot = m.team1Id ? 2 : 1;
-        const incoming = Array.from(updatedMatchesMap.values()).filter(
-          (source) =>
-            (source.nextMatchId === m.id && source.nextSlot === missingSlot) ||
-            (source.loserToMatchId === m.id && source.loserToSlot === missingSlot)
-        );
-        const isOpeningBye = m.round === 'quarterfinal' && incoming.length === 0;
-        const isEmptyFeederBye =
-          incoming.length > 0 && incoming.every((source) => !source.team1Id && !source.team2Id);
-        if (isOpeningBye || isEmptyFeederBye) {
+        if (!canSlotReceiveTeam(updatedMatchesMap, m, missingSlot)) {
           m.status = 'bye';
           m.winnerId = m.team1Id || m.team2Id;
           m.team1Sets = 0;

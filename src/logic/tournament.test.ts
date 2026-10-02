@@ -309,6 +309,59 @@ describe('bracket.ts', () => {
     expect(matches.find((match) => match.id === 'final_sf_1')?.team2Id).toBeNull();
   });
 
+  it('does not mark the official final as a bye while the other semifinal feeder is still pending', () => {
+    const standings: Standing[] = OFFICIAL_TEAMS.map((team) => {
+      const rank = Number(team.id.slice(-1));
+      return {
+        rank,
+        teamId: team.id,
+        teamName: team.name,
+        pool: team.pool,
+        played: 2,
+        win: 1,
+        loss: 1,
+        setsWon: 2,
+        setsLost: 2,
+        setRatio: 1,
+        pointsFor: 60,
+        pointsAgainst: 60,
+        pointDiff: 0,
+      };
+    });
+    const winningSets = [
+      { team1: 25, team2: 10 },
+      { team1: 25, team2: 10 },
+      { team1: null, team2: null },
+    ];
+    let matches = seedOfficialTournament(createOfficialTournamentMatches(), standings);
+
+    for (const matchCode of ['A5', 'A6']) {
+      const match = matches.find((item) => item.matchCode === matchCode)!;
+      matches = advanceWinner(matches, { ...match, sets: winningSets }, defaultSettings);
+    }
+
+    const semifinal = matches.find((item) => item.matchCode === 'A7')!;
+    matches = advanceWinner(matches, { ...semifinal, sets: winningSets }, defaultSettings);
+
+    const finalMatch = matches.find((item) => item.matchCode === 'A8')!;
+    expect(finalMatch.team1Id).toBeTruthy();
+    expect(finalMatch.team2Id).toBeNull();
+    expect(finalMatch.status).toBe('pending');
+    expect(finalMatch.winnerId).toBeNull();
+  });
+
+  it('still advances true byes when an empty feeder branch cannot produce a team', () => {
+    const teams = createMockTeams(2);
+    const matches = generateFinalTournament(teams, defaultSettings);
+    const finalMatch = matches.find((item) => item.id === 'final_fn')!;
+
+    expect(matches.find((item) => item.id === 'final_sf_1')?.status).toBe('bye');
+    expect(matches.find((item) => item.id === 'final_sf_2')?.status).toBe('bye');
+    expect(finalMatch.team1Id).toBe(teams[0].id);
+    expect(finalMatch.team2Id).toBe(teams[1].id);
+    expect(finalMatch.status).toBe('pending');
+  });
+
   it.each([2, 3, 4, 5, 6, 7])('keeps every one of %i entrants in a unique bracket slot', (count) => {
     const teams = createMockTeams(count).map((team, index) => ({ ...team, pool: `P${index + 1}`, seed: 1 }));
     const pairs = seedFinalists(teams);

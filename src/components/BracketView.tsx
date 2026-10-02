@@ -137,8 +137,9 @@ export const BracketView: React.FC<BracketViewProps> = ({
       );
     }
 
-    const t1Placeholder = match.bracketSlotLabel1 || placeholderTeam1;
-    const t2Placeholder = match.bracketSlotLabel2 || placeholderTeam2;
+    const isBye = match.status === 'bye';
+    const t1Placeholder = isBye && !match.team1Id ? '―' : match.bracketSlotLabel1 || placeholderTeam1;
+    const t2Placeholder = isBye && !match.team2Id ? '―' : match.bracketSlotLabel2 || placeholderTeam2;
 
     const t1 = getTeamDisplay(match.team1Id, t1Placeholder);
     const t2 = getTeamDisplay(match.team2Id, t2Placeholder);
@@ -213,7 +214,7 @@ export const BracketView: React.FC<BracketViewProps> = ({
                   : 'bg-zinc-100 dark:bg-zinc-800 text-zinc-400 dark:text-zinc-500'
               }`}
             >
-              {isCompleted ? '終了' : match.team1Id && match.team2Id ? '予定' : '待機'}
+              {isBye ? '不戦勝' : isCompleted ? '終了' : match.team1Id && match.team2Id ? '予定' : '待機'}
             </span>
           </div>
         </div>
