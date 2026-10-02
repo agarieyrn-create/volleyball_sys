@@ -1,8 +1,9 @@
-import { doc, getDoc, onSnapshot, setDoc } from 'firebase/firestore';
+import { doc, getDoc, onSnapshot, runTransaction } from 'firebase/firestore';
 import { db, isFirebaseConfigured } from './firebase';
 import { DEFAULT_APP_STATE } from './defaults';
 import { AppState } from '../types';
-import { ensureOfficialTournamentIntegrity } from '../logic/officialTournament';
+import { mergeConcurrentStates, hasSameTournamentData, StateConflictError } from './stateMerge';
+import { validateAppState } from './validation';
 
 const TOURNAMENT_DOC_PATH = 'tournaments/main';
 const LOCAL_STORAGE_KEY = 'volleyball_tournament_main_state';
@@ -29,50 +30,49 @@ const localBroadcast = typeof window !== 'undefined' && 'BroadcastChannel' in wi
   ? new BroadcastChannel('volleyball_state_sync')
   : null;
 
-export function isLegacyDummyState(data: any): boolean {
-  if (!data || !Array.isArray(data.teams) || data.teams.length === 0) return true;
-  // ダミーチーム「営業部 A」などが含まれる、または公式チーム「遠目翼爆誕」が存在しない場合は移行対象
-  const hasDummyTeam = data.teams.some((t: any) =>
-    t.name && (t.name.includes('営業部 A') || t.name.includes('役員選抜'))
-  );
-  const hasOfficialTeam = data.teams.some((t: any) =>
-    t.name && (t.name.includes('遠目翼爆誕') || t.name.includes('イナズマイレブン') || t.name.includes('PEC VOLTAGE'))
-  );
-  return hasDummyTeam || !hasOfficialTeam;
-}
-
 /**
  * tournaments/main をリアルタイム購読し、解除関数を返す
  */
-export function subscribe(callback: (state: AppState) => void): () => void {
+export function subscribe(
+  callback: (state: AppState) => void,
+  onError?: (message: string) => void
+): () => void {
   if (isFirebaseConfigured && db) {
     const docRef = doc(db, 'tournaments', 'main');
     const unsubscribe = onSnapshot(
       docRef,
       (snapshot) => {
         if (snapshot.exists()) {
-          const data = snapshot.data() as AppState;
-          if (isLegacyDummyState(data)) {
-            save(DEFAULT_APP_STATE).catch(console.error);
-            callback(DEFAULT_APP_STATE);
-          } else {
-            const { state: verifiedState, upgraded } = ensureOfficialTournamentIntegrity(data);
-            if (upgraded) {
-              save(verifiedState).catch(console.error);
+          try {
+            callback(validateAppState(snapshot.data()));
+          } catch (error) {
+            console.error('Invalid tournament document; it was left untouched:', error);
+            onError?.('クラウド上の大会データに不整合があります。データは上書きしていません。');
+            try {
+              callback(loadLocal());
+            } catch (localError) {
+              console.error('No valid local recovery copy is available:', localError);
+              onError?.('端末内にも読み込める保存データがありません。自動初期化は行っていません。');
             }
-            callback(verifiedState);
           }
         } else {
-          // ドキュメントが存在しない場合はデフォルトで保存
-          save(DEFAULT_APP_STATE).catch(console.error);
+          // 初回のみ初期データを作成。既存データはトランザクションで保護する。
+          save(DEFAULT_APP_STATE, null).catch((error) => {
+            console.error('Failed to initialize tournament document:', error);
+            onError?.('大会データの初期化に失敗しました。');
+          });
           callback(DEFAULT_APP_STATE);
         }
       },
       (error) => {
         console.error('Firestore snapshot error, falling back to local:', error);
         // エラー時はローカルからロード
-        const local = loadLocal();
-        callback(local);
+        try {
+          callback(loadLocal());
+        } catch (localError) {
+          console.error('Local fallback is also invalid:', localError);
+          onError?.('クラウドと端末内のデータを読み込めません。自動初期化は行っていません。');
+        }
       }
     );
     return unsubscribe;
@@ -80,23 +80,23 @@ export function subscribe(callback: (state: AppState) => void): () => void {
 
   // Firestore 未設定時のフォールバック (BroadcastChannel & storage イベント)
   const emitLocal = () => {
-    const data = loadLocal();
-    callback(data);
+    try {
+      callback(loadLocal());
+    } catch (error) {
+      console.error('Local tournament data is invalid:', error);
+      onError?.('端末内の大会データを読み込めません。自動初期化は行っていません。');
+    }
   };
 
   emitLocal();
 
   const handleBroadcast = (event: MessageEvent<AppState>) => {
     if (event.data) {
-      if (isLegacyDummyState(event.data)) {
-        save(DEFAULT_APP_STATE).catch(console.error);
-        callback(DEFAULT_APP_STATE);
-      } else {
-        const { state: verifiedState, upgraded } = ensureOfficialTournamentIntegrity(event.data);
-        if (upgraded) {
-          save(verifiedState).catch(console.error);
-        }
-        callback(verifiedState);
+      try {
+        callback(validateAppState(event.data));
+      } catch (error) {
+        console.error('Invalid local broadcast state:', error);
+        onError?.('別の画面から受け取った大会データに不整合があります。');
       }
     }
   };
@@ -104,19 +104,11 @@ export function subscribe(callback: (state: AppState) => void): () => void {
   const handleStorage = (event: StorageEvent) => {
     if (event.key === LOCAL_STORAGE_KEY && event.newValue) {
       try {
-        const parsed = JSON.parse(event.newValue) as AppState;
-        if (isLegacyDummyState(parsed)) {
-          save(DEFAULT_APP_STATE).catch(console.error);
-          callback(DEFAULT_APP_STATE);
-        } else {
-          const { state: verifiedState, upgraded } = ensureOfficialTournamentIntegrity(parsed);
-          if (upgraded) {
-            save(verifiedState).catch(console.error);
-          }
-          callback(verifiedState);
-        }
+        const parsed = validateAppState(JSON.parse(event.newValue));
+        callback(parsed);
       } catch (err) {
         console.error('Failed to parse storage event state', err);
+        onError?.('ローカルに保存された大会データを読み込めませんでした。');
       }
     }
   };
@@ -135,9 +127,11 @@ export function subscribe(callback: (state: AppState) => void): () => void {
 }
 
 /**
- * AppState を全体上書き保存。保存時に updatedAt=現在ISO, updatedBy=端末ラベルをセット。
+ * AppStateを保存する。Firestoreでは変更差分をトランザクションで統合し、
+ * 同じ値を別端末が同時に変更した場合は上書きせず競合として返す。
  */
-export async function save(state: AppState): Promise<AppState> {
+export async function save(state: AppState, baseState: AppState | null = null): Promise<AppState> {
+  validateAppState(state, { strictResults: true });
   const updatedBy = getDeviceLabel() || (typeof navigator !== 'undefined' ? navigator.userAgent.slice(0, 24) : 'Browser');
   const enrichedState: AppState = {
     ...state,
@@ -145,20 +139,44 @@ export async function save(state: AppState): Promise<AppState> {
     updatedBy,
   };
 
-  // 常にローカルストレージにも保存
-  saveLocal(enrichedState);
-
   if (isFirebaseConfigured && db) {
-    const docRef = doc(db, 'tournaments', 'main');
-    await setDoc(docRef, enrichedState);
+    const docRef = doc(db, TOURNAMENT_DOC_PATH);
+    const savedState = await runTransaction(db, async (transaction) => {
+      const snapshot = await transaction.get(docRef);
+      if (!snapshot.exists()) {
+        transaction.set(docRef, enrichedState);
+        return enrichedState;
+      }
+
+      const remoteState = validateAppState(snapshot.data());
+      let mergedState: AppState;
+      if (baseState) {
+        mergedState = mergeConcurrentStates(baseState, state, remoteState);
+      } else if (hasSameTournamentData(state, remoteState)) {
+        mergedState = remoteState;
+      } else {
+        throw new StateConflictError('大会全体 (保存元データが確認できません)');
+      }
+
+      const nextState: AppState = {
+        ...mergedState,
+        updatedAt: new Date().toISOString(),
+        updatedBy,
+      };
+      validateAppState(nextState, { strictResults: true });
+      transaction.set(docRef, nextState);
+      return nextState;
+    });
+    saveLocal(savedState);
+    return savedState;
   } else {
+    saveLocal(enrichedState);
     // ローカルブロードキャスト通知
     if (localBroadcast) {
       localBroadcast.postMessage(enrichedState);
     }
+    return enrichedState;
   }
-
-  return enrichedState;
 }
 
 /**
@@ -170,21 +188,19 @@ export async function getOnce(): Promise<AppState> {
       const docRef = doc(db, 'tournaments', 'main');
       const snapshot = await getDoc(docRef);
       if (snapshot.exists()) {
-        const data = snapshot.data() as AppState;
-        if (isLegacyDummyState(data)) {
-          await save(DEFAULT_APP_STATE);
-          return DEFAULT_APP_STATE;
-        }
-        const { state: verifiedState, upgraded } = ensureOfficialTournamentIntegrity(data);
-        if (upgraded) {
-          await save(verifiedState);
-        } else {
-          saveLocal(verifiedState);
-        }
-        return verifiedState;
+        const data = validateAppState(snapshot.data());
+        saveLocal(data);
+        return data;
       } else {
-        await save(DEFAULT_APP_STATE);
-        return DEFAULT_APP_STATE;
+        try {
+          return await save(DEFAULT_APP_STATE, null);
+        } catch (error) {
+          // 初期化競合なら、今作成された共有データを読み直す。
+          if (!(error instanceof StateConflictError)) throw error;
+          const latest = await getDoc(docRef);
+          if (latest.exists()) return validateAppState(latest.data());
+          throw error;
+        }
       }
     } catch (e) {
       console.warn('getDoc failed, reading from local', e);
@@ -206,13 +222,18 @@ export function exportJson(state: AppState): string {
  * JSON文字列からインポート（最低限のスキーマ検証）
  */
 export function importJson(jsonString: string): AppState {
-  const parsed = JSON.parse(jsonString) as Partial<AppState>;
+  let parsed: Partial<AppState>;
+  try {
+    parsed = JSON.parse(jsonString) as Partial<AppState>;
+  } catch {
+    throw new Error('JSONの構文が正しくありません。');
+  }
 
   if (!parsed || typeof parsed !== 'object') {
     throw new Error('無効なJSONデータです。');
   }
 
-  if (!parsed.settings || typeof parsed.settings !== 'object') {
+  if (!parsed.settings || typeof parsed.settings !== 'object' || Array.isArray(parsed.settings)) {
     throw new Error('大会設定(settings)が含まれていません。');
   }
 
@@ -220,26 +241,30 @@ export function importJson(jsonString: string): AppState {
     throw new Error('チーム情報(teams)の配列が見つかりません。');
   }
 
-  if (!Array.isArray(parsed.matches)) {
-    throw new Error('試合データ(matches)の配列が見つかりません。');
-  }
+  if (!Array.isArray(parsed.matches)) throw new Error('試合データ(matches)の配列が見つかりません。');
 
-  return {
+  const imported = {
     schemaVersion: 1,
     settings: {
       ...DEFAULT_APP_STATE.settings,
       ...parsed.settings,
     },
-    teams: parsed.teams.map((t, idx) => ({
-      id: t.id || `team_${idx + 1}`,
-      name: t.name || `チーム ${idx + 1}`,
-      pool: t.pool,
-      seed: t.seed,
-    })),
+    teams: parsed.teams.map((team, idx) => {
+      if (!team || typeof team !== 'object' || Array.isArray(team)) {
+        throw new Error(`チーム${idx + 1}の形式が正しくありません。`);
+      }
+      return {
+        id: team.id || `team_${idx + 1}`,
+        name: team.name || `チーム ${idx + 1}`,
+        pool: team.pool,
+        seed: team.seed,
+      };
+    }),
     matches: parsed.matches,
     updatedAt: new Date().toISOString(),
     updatedBy: getDeviceLabel() || 'Import',
   };
+  return validateAppState(imported, { strictResults: true, strictTeamReferences: true });
 }
 
 function saveLocal(state: AppState): void {
@@ -251,17 +276,12 @@ function saveLocal(state: AppState): void {
 }
 
 function loadLocal(): AppState {
+  const raw = localStorage.getItem(LOCAL_STORAGE_KEY);
+  if (!raw) return DEFAULT_APP_STATE;
   try {
-    const raw = localStorage.getItem(LOCAL_STORAGE_KEY);
-    if (raw) {
-      const parsed = JSON.parse(raw);
-      if (parsed && parsed.settings && parsed.teams && parsed.matches) {
-        const { state: verifiedState } = ensureOfficialTournamentIntegrity(parsed as AppState);
-        return verifiedState;
-      }
-    }
-  } catch (e) {
-    console.error('Failed to load from local storage', e);
+    return validateAppState(JSON.parse(raw));
+  } catch (error) {
+    console.error('Failed to load local tournament state; it was left untouched:', error);
+    throw new Error('ローカル保存データの形式が正しくありません。');
   }
-  return DEFAULT_APP_STATE;
 }
