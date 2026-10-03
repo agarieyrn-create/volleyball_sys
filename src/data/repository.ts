@@ -133,16 +133,19 @@ const localBroadcast = typeof window !== 'undefined' && 'BroadcastChannel' in wi
  */
 export function subscribe(
   callback: (state: AppState) => void,
-  onError?: (message: string) => void
+  onError?: (message: string) => void,
+  onConnected?: () => void,
 ): () => void {
   if (isFirebaseConfigured && db) {
     const docRef = doc(db, 'tournaments', 'main');
     const unsubscribe = onSnapshot(
       docRef,
+      { includeMetadataChanges: true },
       (snapshot) => {
         if (snapshot.exists()) {
           try {
             callback(validateAppState(snapshot.data()));
+            if (!snapshot.metadata.fromCache) onConnected?.();
           } catch (error) {
             console.error('Invalid tournament document; it was left untouched:', error);
             onError?.('クラウド上の大会データに不整合があります。データは上書きしていません。');
