@@ -11,7 +11,7 @@ import {
   seedOfficialTournament,
 } from './officialTournament';
 import { autoAssignReferees } from './referee';
-import { evaluateMatch, isSetFinished } from './score';
+import { evaluateMatch, getCountedSetScores, isSetFinished } from './score';
 import {
   computeAllTeamsMatchProgress,
   computeLeagueStandings,
@@ -20,7 +20,7 @@ import {
 } from './standings';
 import { DEFAULT_APP_STATE, DEFAULT_SETTINGS } from '../data/defaults';
 import { tournamentReducer } from '../state/reducer';
-import { Match, Settings, Team } from '../types';
+import { Match, Settings, Standing, Team } from '../types';
 
 const defaultSettings: Settings = {
   name: '社内バレーボール大会',
@@ -83,6 +83,38 @@ describe('score.ts', () => {
     expect(res.team2Sets).toBe(1);
     expect(res.winnerId).toBe('t1');
     expect(res.status).toBe('completed');
+  });
+
+  it('does not count sets after a gap or after the winner is decided', () => {
+    const template = DEFAULT_APP_STATE.matches.find((match) => match.round === 'league')!;
+    const gapResult = evaluateMatch({
+      ...template,
+      sets: [
+        { team1: 12, team2: 10 },
+        { team1: 25, team2: 10 },
+        { team1: 25, team2: 10 },
+      ],
+    }, defaultSettings);
+    expect(gapResult.status).toBe('pending');
+    expect(gapResult.team1Sets).toBe(0);
+
+    const completedMatch = {
+      ...template,
+      sets: [
+        { team1: 25, team2: 20 },
+        { team1: 25, team2: 20 },
+        { team1: 15, team2: 0 },
+      ],
+    };
+    const result = evaluateMatch(completedMatch, defaultSettings);
+    expect(result.status).toBe('completed');
+    expect(result.team1Sets).toBe(2);
+    expect(getCountedSetScores(completedMatch, defaultSettings)).toHaveLength(2);
+  });
+
+  it('rejects fractional scores as completed set results', () => {
+    expect(isSetFinished(25.5, 20, 25, 2)).toBe(false);
+    expect(isSetFinished(Number.NaN, 20, 25, 2)).toBe(false);
   });
 });
 
@@ -225,8 +257,8 @@ describe('bracket.ts', () => {
     const seeded = seedFinalists(finalists);
     expect(seeded).toHaveLength(4);
     // QF1: A1 vs C2, QF2: B1 vs D2, QF3: C1 vs A2, QF4: D1 vs B2
-    expect(seeded[0].team1.id).toBe('a1');
-    expect(seeded[0].team2.id).toBe('c2');
+    expect(seeded[0].team1?.id).toBe('a1');
+    expect(seeded[0].team2?.id).toBe('c2');
 
     // トーナメント生成
     let matches = generateFinalTournament(finalists, defaultSettings);
@@ -258,6 +290,194 @@ describe('bracket.ts', () => {
     // 勝者 a1 が決勝へ、敗者 b1 が 3位決定戦へ
     expect(finalMatch.team1Id).toBe('a1');
     expect(thirdMatch.team1Id).toBe('b1');
+  });
+
+  it('uses byes for fewer than eight finalists without duplicating any team', () => {
+    const teams = createMockTeams(6).map((team, index) => ({ ...team, pool: `P${index + 1}`, seed: 1 }));
+    const pairs = seedFinalists([...teams, teams[0]]);
+    const pairedIds = pairs.flatMap((pair) => [pair.team1?.id, pair.team2?.id]).filter(Boolean);
+
+    expect(pairs).toHaveLength(4);
+    expect(new Set(pairedIds).size).toBe(6);
+    expect(pairedIds).toHaveLength(6);
+
+    const matches = generateFinalTournament(teams, defaultSettings);
+    expect(matches).toHaveLength(8);
+    expect(matches.find((match) => match.id === 'final_qf_1')?.status).toBe('bye');
+    expect(matches.find((match) => match.id === 'final_qf_4')?.status).toBe('bye');
+    expect(matches.find((match) => match.id === 'final_sf_1')?.team1Id).toBe(teams[0].id);
+    expect(matches.find((match) => match.id === 'final_sf_1')?.team2Id).toBeNull();
+  });
+
+  it('does not mark the official final as a bye while the other semifinal feeder is still pending', () => {
+    const standings: Standing[] = OFFICIAL_TEAMS.map((team) => {
+      const rank = Number(team.id.slice(-1));
+      return {
+        rank,
+        teamId: team.id,
+        teamName: team.name,
+        pool: team.pool,
+        played: 2,
+        win: 1,
+        loss: 1,
+        setsWon: 2,
+        setsLost: 2,
+        setRatio: 1,
+        pointsFor: 60,
+        pointsAgainst: 60,
+        pointDiff: 0,
+      };
+    });
+    const winningSets = [
+      { team1: 25, team2: 10 },
+      { team1: 25, team2: 10 },
+      { team1: null, team2: null },
+    ];
+    let matches = seedOfficialTournament(createOfficialTournamentMatches(), standings);
+
+    for (const matchCode of ['A5', 'A6']) {
+      const match = matches.find((item) => item.matchCode === matchCode)!;
+      matches = advanceWinner(matches, { ...match, sets: winningSets }, defaultSettings);
+    }
+
+    const semifinal = matches.find((item) => item.matchCode === 'A7')!;
+    matches = advanceWinner(matches, { ...semifinal, sets: winningSets }, defaultSettings);
+
+    const finalMatch = matches.find((item) => item.matchCode === 'A8')!;
+    expect(finalMatch.team1Id).toBeTruthy();
+    expect(finalMatch.team2Id).toBeNull();
+    expect(finalMatch.status).toBe('pending');
+    expect(finalMatch.winnerId).toBeNull();
+  });
+
+  it('still advances true byes when an empty feeder branch cannot produce a team', () => {
+    const teams = createMockTeams(2);
+    const matches = generateFinalTournament(teams, defaultSettings);
+    const finalMatch = matches.find((item) => item.id === 'final_fn')!;
+
+    expect(matches.find((item) => item.id === 'final_sf_1')?.status).toBe('bye');
+    expect(matches.find((item) => item.id === 'final_sf_2')?.status).toBe('bye');
+    expect(finalMatch.team1Id).toBe(teams[0].id);
+    expect(finalMatch.team2Id).toBe(teams[1].id);
+    expect(finalMatch.status).toBe('pending');
+  });
+
+  it.each([2, 3, 4, 5, 6, 7])('keeps every one of %i entrants in a unique bracket slot', (count) => {
+    const teams = createMockTeams(count).map((team, index) => ({ ...team, pool: `P${index + 1}`, seed: 1 }));
+    const pairs = seedFinalists(teams);
+    const pairedIds = pairs.flatMap((pair) => [pair.team1?.id, pair.team2?.id]).filter(Boolean);
+    const matches = generateFinalTournament(teams, defaultSettings);
+    const quarterfinals = matches.filter((match) => match.round === 'quarterfinal');
+
+    expect(new Set(pairedIds).size).toBe(count);
+    expect(pairedIds).toHaveLength(count);
+    expect(quarterfinals.flatMap((match) => [match.team1Id, match.team2Id]).filter(Boolean)).toHaveLength(count);
+    expect(matches.every((match) => !match.team1Id || !match.team2Id || match.team1Id !== match.team2Id)).toBe(true);
+  });
+
+  it('clears downstream results when a corrected score changes bracket participants', () => {
+    const finalists: Team[] = [
+      { id: 'a1', name: 'A1', pool: 'A', seed: 1 },
+      { id: 'a2', name: 'A2', pool: 'A', seed: 2 },
+      { id: 'b1', name: 'B1', pool: 'B', seed: 1 },
+      { id: 'b2', name: 'B2', pool: 'B', seed: 2 },
+      { id: 'c1', name: 'C1', pool: 'C', seed: 1 },
+      { id: 'c2', name: 'C2', pool: 'C', seed: 2 },
+      { id: 'd1', name: 'D1', pool: 'D', seed: 1 },
+      { id: 'd2', name: 'D2', pool: 'D', seed: 2 },
+    ];
+    const winningSets = [
+      { team1: 25, team2: 15 },
+      { team1: 25, team2: 15 },
+      { team1: null, team2: null },
+    ];
+    let matches = generateFinalTournament(finalists, defaultSettings);
+
+    const qf1 = { ...matches.find((match) => match.id === 'final_qf_1')!, sets: winningSets };
+    matches = advanceWinner(matches, qf1, defaultSettings);
+    const qf2 = { ...matches.find((match) => match.id === 'final_qf_2')!, sets: winningSets };
+    matches = advanceWinner(matches, qf2, defaultSettings);
+
+    const semi = { ...matches.find((match) => match.id === 'final_sf_1')!, sets: winningSets };
+    matches = advanceWinner(matches, semi, defaultSettings);
+    expect(matches.find((match) => match.id === 'final_fn')?.team1Id).toBe('a1');
+
+    // Correct QF1 so C2 advances instead of A1.
+    const correctedQf1 = {
+      ...matches.find((match) => match.id === 'final_qf_1')!,
+      sets: [
+        { team1: 15, team2: 25 },
+        { team1: 15, team2: 25 },
+        { team1: null, team2: null },
+      ],
+    };
+    matches = advanceWinner(matches, correctedQf1, defaultSettings);
+
+    const correctedSemi = matches.find((match) => match.id === 'final_sf_1')!;
+    const finalMatch = matches.find((match) => match.id === 'final_fn')!;
+    const thirdPlace = matches.find((match) => match.id === 'final_3rd')!;
+    expect(correctedSemi.team1Id).toBe('c2');
+    expect(correctedSemi.team2Id).toBe('b1');
+    expect(correctedSemi.winnerId).toBeNull();
+    expect(correctedSemi.sets.every((set) => set.team1 === null && set.team2 === null)).toBe(true);
+    expect(finalMatch.team1Id).toBeNull();
+    expect(finalMatch.winnerId).toBeNull();
+    expect(finalMatch.sets.every((set) => set.team1 === null && set.team2 === null)).toBe(true);
+    expect(thirdPlace.team1Id).toBeNull();
+    expect(thirdPlace.sets.every((set) => set.team1 === null && set.team2 === null)).toBe(true);
+  });
+
+  it('clears a played official match when corrected league standings change its participants', () => {
+    const standings: Standing[] = ['A', 'B', 'C', 'D', 'E'].flatMap((pool) =>
+      Array.from({ length: pool === 'A' || pool === 'B' ? 4 : 3 }, (_, index) => {
+        const rank = index + 1;
+        return {
+          rank,
+          teamId: `${pool}${rank}`,
+          teamName: `${pool} team ${rank}`,
+          pool,
+          played: 3,
+          win: 3 - rank,
+          loss: rank - 1,
+          setsWon: 4,
+          setsLost: 2,
+          setRatio: 2,
+          pointsFor: 75,
+          pointsAgainst: 60,
+          pointDiff: 15,
+        };
+      })
+    );
+    const playedA5 = seedOfficialTournament(createOfficialTournamentMatches(), standings).map((match) =>
+      match.matchCode === 'A5'
+        ? {
+            ...match,
+            sets: [
+              { team1: 25, team2: 18 },
+              { team1: 25, team2: 20 },
+              { team1: null, team2: null },
+            ],
+            team1Sets: 2,
+            winnerId: 'A2',
+            status: 'completed' as const,
+          }
+        : match
+    );
+    const correctedStandings = standings.map((standing) => {
+      if (standing.pool !== 'A') return standing;
+      if (standing.rank === 2) return { ...standing, teamId: 'A3' };
+      if (standing.rank === 3) return { ...standing, teamId: 'A2' };
+      return standing;
+    });
+
+    const corrected = seedOfficialTournament(playedA5, correctedStandings).find(
+      (match) => match.matchCode === 'A5'
+    )!;
+    expect(corrected.team1Id).toBe('A3');
+    expect(corrected.team2Id).toBe('D1');
+    expect(corrected.status).toBe('pending');
+    expect(corrected.winnerId).toBeNull();
+    expect(corrected.sets.every((set) => set.team1 === null && set.team2 === null)).toBe(true);
   });
 });
 
@@ -508,7 +728,9 @@ describe('tournamentReducer team management', () => {
     const seeds = seedFinalists(finalists);
     expect(seeds.length).toBe(4);
     // Ensure no team is duplicated
-    const teamIdsInSeeds = seeds.flatMap((s) => [s.team1.id, s.team2.id]);
+    const teamIdsInSeeds = seeds
+      .flatMap((s) => [s.team1?.id, s.team2?.id])
+      .filter((id): id is string => Boolean(id));
     const uniqueIds = new Set(teamIdsInSeeds);
     expect(uniqueIds.size).toBe(8);
   });
@@ -934,5 +1156,43 @@ describe('tournamentReducer team management', () => {
     const teamA2 = DEFAULT_APP_STATE.teams.find((t) => t.id === 'team_a2')!;
     expect(a6.referee).toContain(teamA2.name);
   });
-});
 
+  it('ignores malformed score updates and keeps teams with completed match records', () => {
+    const firstLeagueMatch = DEFAULT_APP_STATE.matches.find((match) => match.round === 'league')!;
+    const invalidScoreState = tournamentReducer(DEFAULT_APP_STATE, {
+      type: 'SAVE_SCORE',
+      payload: {
+        matchId: firstLeagueMatch.id,
+        sets: [{ team1: 15.5, team2: 10 }, { team1: 15, team2: 10 }, { team1: null, team2: null }],
+      },
+    });
+    expect(invalidScoreState).toBe(DEFAULT_APP_STATE);
+
+    const completedState = tournamentReducer(DEFAULT_APP_STATE, {
+      type: 'SAVE_SCORE',
+      payload: {
+        matchId: firstLeagueMatch.id,
+        sets: [{ team1: 15, team2: 10 }, { team1: 15, team2: 10 }, { team1: null, team2: null }],
+      },
+    });
+    const teamId = firstLeagueMatch.team1Id!;
+    const afterDelete = tournamentReducer(completedState, {
+      type: 'DELETE_TEAM',
+      payload: { teamId },
+    });
+    expect(afterDelete.teams.some((team) => team.id === teamId)).toBe(true);
+    expect(afterDelete.matches.find((match) => match.id === firstLeagueMatch.id)?.winnerId).toBe(teamId);
+
+    const extraSetState = tournamentReducer(DEFAULT_APP_STATE, {
+      type: 'SAVE_SCORE',
+      payload: {
+        matchId: firstLeagueMatch.id,
+        sets: [{ team1: 15, team2: 10 }, { team1: 15, team2: 10 }, { team1: 10, team2: 15 }],
+      },
+    });
+    expect(extraSetState.matches.find((match) => match.id === firstLeagueMatch.id)?.sets[2]).toEqual({
+      team1: null,
+      team2: null,
+    });
+  });
+});

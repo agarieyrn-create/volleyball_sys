@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { RefereeBalanceModal } from '../components/RefereeBalanceModal';
 import { RulesModal } from '../components/RulesModal';
@@ -53,32 +53,35 @@ export const RefereeScoreboardPage: React.FC = () => {
 
   const t1Name = activeMatch?.team1Id ? teamMap.get(activeMatch.team1Id)?.name || 'チーム1' : '未定';
   const t2Name = activeMatch?.team2Id ? teamMap.get(activeMatch.team2Id)?.name || 'チーム2' : '未定';
+  const setCount = Math.max(1, Math.min(5, settings.bestOf || 3));
 
   // 現在のセットスコア取得または初期化
   const currentSets: SetScore[] = useMemo(() => {
     if (!activeMatch) return [];
-    if (activeMatch.sets && activeMatch.sets.length > 0) {
-      return activeMatch.sets;
-    }
-    return [
-      { team1: 0, team2: 0 },
-      { team1: 0, team2: 0 },
-      { team1: 0, team2: 0 },
-    ];
-  }, [activeMatch]);
+    return Array.from({ length: setCount }, (_, index) => {
+      const set = activeMatch.sets?.[index];
+      return {
+        team1: set?.team1 ?? 0,
+        team2: set?.team2 ?? 0,
+      };
+    });
+  }, [activeMatch, setCount]);
 
   const [history, setHistory] = useState<
     Array<{ sets: SetScore[]; setIdx: number; desc: string }>
   >([]);
   const [isCourtSwapped, setIsCourtSwapped] = useState<boolean>(false);
   const [isResetConfirmOpen, setIsResetConfirmOpen] = useState<boolean>(false);
+  useEffect(() => {
+    setActiveSetIndex((current) => Math.min(current, setCount - 1));
+  }, [setCount]);
 
   const targetSet: SetScore = currentSets[activeSetIndex] || {
     team1: 0,
     team2: 0,
   };
 
-  const setLimit = activeSetIndex === 2 ? settings.set3Points || 10 : settings.set12Points || 15;
+  const setLimit = activeSetIndex >= 2 ? settings.set3Points || 10 : settings.set12Points || 15;
 
   const showToast = (msg: string) => {
     setToastMsg(msg);
@@ -366,7 +369,7 @@ export const RefereeScoreboardPage: React.FC = () => {
 
             {/* セット切り替えボタン（スマホタップ対応） */}
             <div className="flex items-center gap-1.5 overflow-x-auto no-scrollbar">
-              {[0, 1, 2].map((idx) => {
+              {Array.from({ length: setCount }, (_, idx) => idx).map((idx) => {
                 const s = currentSets[idx];
                 const hasScore = s && ((s.team1 ?? 0) > 0 || (s.team2 ?? 0) > 0);
                 return (
@@ -688,11 +691,11 @@ export const RefereeScoreboardPage: React.FC = () => {
             </div>
 
             <div className="flex items-center gap-2">
-              {activeSetIndex < 2 && (
+              {activeSetIndex < setCount - 1 && (
                 <button
                   type="button"
                   onClick={() => {
-                    setActiveSetIndex((prev) => Math.min(2, prev + 1));
+                    setActiveSetIndex((prev) => Math.min(setCount - 1, prev + 1));
                     showToast(`第${activeSetIndex + 2}セットに切り替えました`);
                   }}
                   className="px-4 sm:px-5 py-2.5 rounded-xl bg-indigo-600 hover:bg-indigo-500 text-white text-xs sm:text-sm font-extrabold shadow-md flex items-center gap-1.5 min-h-[42px] cursor-pointer active:scale-95"
@@ -701,9 +704,9 @@ export const RefereeScoreboardPage: React.FC = () => {
                   <span>→</span>
                 </button>
               )}
-              {activeSetIndex === 2 && (
+              {setCount > 1 && activeSetIndex === setCount - 1 && (
                 <span className="text-xs text-emerald-500 dark:text-emerald-400 font-extrabold px-3 py-2 bg-emerald-500/15 rounded-xl border border-emerald-500/30">
-                  ★第3セット (ファイナル)
+                  ★第{setCount}セット (最終セット)
                 </span>
               )}
             </div>

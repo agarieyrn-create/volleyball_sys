@@ -4,11 +4,13 @@ import {
   computeAllTeamsMatchProgress,
   computeExchangeLeagueStandings,
 } from '../logic/standings';
-import { Match, Team } from '../types';
+import { Match, Settings, Team } from '../types';
+import { evaluateMatch } from '../logic/score';
 
 interface BracketViewProps {
   matches: Match[];
   teams: Team[];
+  settings: Settings;
   onMatchClick?: (match: Match) => void;
   onManualEditClick?: (match: Match) => void;
   isDark?: boolean;
@@ -19,6 +21,7 @@ interface BracketViewProps {
 export const BracketView: React.FC<BracketViewProps> = ({
   matches,
   teams,
+  settings,
   onMatchClick,
   onManualEditClick,
   isDark = false,
@@ -60,17 +63,19 @@ export const BracketView: React.FC<BracketViewProps> = ({
   const thirdPlaceMatch = matchB8 || matches.find((m) => m.round === 'third_place');
 
   // 優勝・3位チーム
+  const finalOutcome = finalMatch ? evaluateMatch(finalMatch, settings) : null;
+  const thirdPlaceOutcome = thirdPlaceMatch ? evaluateMatch(thirdPlaceMatch, settings) : null;
   const championTeam =
-    finalMatch?.status === 'completed' && finalMatch.winnerId
-      ? teamMap.get(finalMatch.winnerId)
+    finalOutcome?.status === 'completed' && finalOutcome.winnerId
+      ? teamMap.get(finalOutcome.winnerId)
       : null;
   const thirdPlaceTeam =
-    thirdPlaceMatch?.status === 'completed' && thirdPlaceMatch.winnerId
-      ? teamMap.get(thirdPlaceMatch.winnerId)
+    thirdPlaceOutcome?.status === 'completed' && thirdPlaceOutcome.winnerId
+      ? teamMap.get(thirdPlaceOutcome.winnerId)
       : null;
 
   // 交流リーグ順位表＆全チーム試合数進捗
-  const exchangeStandings = computeExchangeLeagueStandings(teams, matches);
+  const exchangeStandings = computeExchangeLeagueStandings(teams, matches, settings);
   const allTeamsProgress = computeAllTeamsMatchProgress(teams, matches);
 
   const getTeamDisplay = (
@@ -132,8 +137,9 @@ export const BracketView: React.FC<BracketViewProps> = ({
       );
     }
 
-    const t1Placeholder = match.bracketSlotLabel1 || placeholderTeam1;
-    const t2Placeholder = match.bracketSlotLabel2 || placeholderTeam2;
+    const isBye = match.status === 'bye';
+    const t1Placeholder = isBye && !match.team1Id ? '―' : match.bracketSlotLabel1 || placeholderTeam1;
+    const t2Placeholder = isBye && !match.team2Id ? '―' : match.bracketSlotLabel2 || placeholderTeam2;
 
     const t1 = getTeamDisplay(match.team1Id, t1Placeholder);
     const t2 = getTeamDisplay(match.team2Id, t2Placeholder);
@@ -208,7 +214,7 @@ export const BracketView: React.FC<BracketViewProps> = ({
                   : 'bg-zinc-100 dark:bg-zinc-800 text-zinc-400 dark:text-zinc-500'
               }`}
             >
-              {isCompleted ? '終了' : match.team1Id && match.team2Id ? '予定' : '待機'}
+              {isBye ? '不戦勝' : isCompleted ? '終了' : match.team1Id && match.team2Id ? '予定' : '待機'}
             </span>
           </div>
         </div>

@@ -3,8 +3,62 @@ import { scheduleSimultaneousMatches } from './court';
 import { evaluateMatch } from './score';
 
 export interface SeedPair {
-  team1: Team;
-  team2: Team;
+  team1: Team | null;
+  team2: Team | null;
+}
+
+function getIncomingMatches(matches: Map<string, Match>, matchId: string, slot: 1 | 2): Match[] {
+  return Array.from(matches.values()).filter(
+    (source) =>
+      (source.nextMatchId === matchId && source.nextSlot === slot) ||
+      (source.loserToMatchId === matchId && source.loserToSlot === slot)
+  );
+}
+
+/** Check unresolved feeder paths recursively before treating an empty slot as a bye. */
+function canSlotReceiveTeam(
+  matches: Map<string, Match>,
+  match: Match,
+  slot: 1 | 2,
+  visited = new Set<string>()
+): boolean {
+  if (slot === 1 ? Boolean(match.team1Id) : Boolean(match.team2Id)) return true;
+
+  const key = `${match.id}:${slot}`;
+  if (visited.has(key)) return true; // A malformed cycle must not create a false bye.
+  const nextVisited = new Set(visited).add(key);
+  return getIncomingMatches(matches, match.id, slot).some((source) =>
+    canMatchProduceTeam(matches, source, nextVisited)
+  );
+}
+
+function canMatchProduceTeam(
+  matches: Map<string, Match>,
+  match: Match,
+  visited: Set<string>
+): boolean {
+  if ((match.status === 'completed' || match.status === 'bye') && match.winnerId) return true;
+  return (
+    canSlotReceiveTeam(matches, match, 1, visited) ||
+    canSlotReceiveTeam(matches, match, 2, visited)
+  );
+}
+
+function resetMatchForParticipants(
+  match: Match,
+  team1Id: string | null,
+  team2Id: string | null
+): Match {
+  return {
+    ...match,
+    team1Id,
+    team2Id,
+    sets: match.sets.map(() => ({ team1: null, team2: null })),
+    team1Sets: 0,
+    team2Sets: 0,
+    winnerId: null,
+    status: 'pending',
+  };
 }
 
 /**
@@ -17,6 +71,25 @@ export interface SeedPair {
  */
 export function seedFinalists(finalists: Team[]): SeedPair[] {
   if (!finalists || finalists.length === 0) return [];
+  // A corrupted standings list must never put the same team into two bracket slots.
+  finalists = Array.from(new Map(finalists.map((team) => [team.id, team])).values()).slice(0, 8);
+
+  // For fewer than eight entrants, place byes in standard 8-team bracket positions.
+  // The existing 8-team pool-crossing rules below remain unchanged.
+  if (finalists.length < 8) {
+    const seedPositions = [0, 6, 4, 2, 3, 5, 7, 1]; // seed 1, 2, ... 8
+    const slots: Array<Team | null> = Array.from({ length: 8 }, () => null);
+    finalists.forEach((team, index) => {
+      slots[seedPositions[index]] = team;
+    });
+    return [
+      { team1: slots[0], team2: slots[1] },
+      { team1: slots[2], team2: slots[3] },
+      { team1: slots[4], team2: slots[5] },
+      { team1: slots[6], team2: slots[7] },
+    ];
+  }
+
   const uniquePools = Array.from(new Set(finalists.map((t) => t.pool || 'A')));
 
   // 2グループ (A・B) の場合
@@ -109,6 +182,7 @@ export function seedFinalists(finalists: Team[]): SeedPair[] {
  * 準々決勝4試合、準決勝2試合、3位決定戦1試合、決勝1試合（計8試合）
  */
 export function generateFinalTournament(finalists: Team[], settings?: Settings): Match[] {
+  if (new Set(finalists.map((team) => team.id)).size < 2) return [];
   const bestOf = settings?.bestOf || 3;
   const pairs = seedFinalists(finalists);
 
@@ -137,8 +211,14 @@ export function generateFinalTournament(finalists: Team[], settings?: Settings):
     sets: Array.from({ length: bestOf }, () => ({ team1: null, team2: null })),
     team1Sets: 0,
     team2Sets: 0,
-    winnerId: null,
-    status: 'pending',
+    winnerId:
+      round === 'quarterfinal' && Boolean(team1Id) !== Boolean(team2Id)
+        ? team1Id || team2Id
+        : null,
+    status:
+      round === 'quarterfinal' && Boolean(team1Id) !== Boolean(team2Id)
+        ? 'bye'
+        : 'pending',
     nextMatchId,
     nextSlot,
     loserToMatchId,
@@ -254,7 +334,9 @@ export function generateFinalTournament(finalists: Team[], settings?: Settings):
   );
 
   const tournamentRaw = [qf1, qf2, qf3, qf4, sf1, sf2, thirdPlace, finalMatch];
-  return scheduleSimultaneousMatches(tournamentRaw, settings?.courtCount || 4);
+  const scheduled = scheduleSimultaneousMatches(tournamentRaw, settings?.courtCount || 4);
+  const firstScheduledMatch = scheduled.find((match) => match.id === qf1.id)!;
+  return advanceWinner(scheduled, firstScheduledMatch, settings);
 }
 
 /**
@@ -298,6 +380,19 @@ export function advanceWinner(
       const m = updatedMatchesMap.get(tm.id);
       if (!m) continue;
 
+      // A one-team match is a bye only when its missing slot has no possible feeder.
+      // This advances real byes while leaving a match pending when its opponent is still to come.
+      const hasOneTeam = Boolean(m.team1Id) !== Boolean(m.team2Id);
+      if (hasOneTeam) {
+        const missingSlot = m.team1Id ? 2 : 1;
+        if (!canSlotReceiveTeam(updatedMatchesMap, m, missingSlot)) {
+          m.status = 'bye';
+          m.winnerId = m.team1Id || m.team2Id;
+          m.team1Sets = 0;
+          m.team2Sets = 0;
+        }
+      }
+
       // 現在のスコアで試合を評価
       const evalRes = evaluateMatch(m, currentSettings);
       m.team1Sets = evalRes.team1Sets;
@@ -318,26 +413,14 @@ export function advanceWinner(
       if (m.nextMatchId && m.nextSlot) {
         const nextM = updatedMatchesMap.get(m.nextMatchId);
         if (nextM) {
-          if (m.nextSlot === 1) {
-            if (nextM.team1Id !== winnerId) {
-              nextM.team1Id = winnerId;
-              hasChanges = true;
-              if (!winnerId) {
-                nextM.sets = nextM.sets.map(() => ({ team1: null, team2: null }));
-                nextM.status = 'pending';
-                nextM.winnerId = null;
-              }
-            }
-          } else if (m.nextSlot === 2) {
-            if (nextM.team2Id !== winnerId) {
-              nextM.team2Id = winnerId;
-              hasChanges = true;
-              if (!winnerId) {
-                nextM.sets = nextM.sets.map(() => ({ team1: null, team2: null }));
-                nextM.status = 'pending';
-                nextM.winnerId = null;
-              }
-            }
+          const nextTeam1Id = m.nextSlot === 1 ? winnerId : nextM.team1Id;
+          const nextTeam2Id = m.nextSlot === 2 ? winnerId : nextM.team2Id;
+          if (nextM.team1Id !== nextTeam1Id || nextM.team2Id !== nextTeam2Id) {
+            updatedMatchesMap.set(
+              nextM.id,
+              resetMatchForParticipants(nextM, nextTeam1Id, nextTeam2Id)
+            );
+            hasChanges = true;
           }
         }
       }
@@ -346,26 +429,14 @@ export function advanceWinner(
       if (m.loserToMatchId && m.loserToSlot) {
         const loserM = updatedMatchesMap.get(m.loserToMatchId);
         if (loserM) {
-          if (m.loserToSlot === 1) {
-            if (loserM.team1Id !== loserId) {
-              loserM.team1Id = loserId;
-              hasChanges = true;
-              if (!loserId) {
-                loserM.sets = loserM.sets.map(() => ({ team1: null, team2: null }));
-                loserM.status = 'pending';
-                loserM.winnerId = null;
-              }
-            }
-          } else if (m.loserToSlot === 2) {
-            if (loserM.team2Id !== loserId) {
-              loserM.team2Id = loserId;
-              hasChanges = true;
-              if (!loserId) {
-                loserM.sets = loserM.sets.map(() => ({ team1: null, team2: null }));
-                loserM.status = 'pending';
-                loserM.winnerId = null;
-              }
-            }
+          const nextTeam1Id = m.loserToSlot === 1 ? loserId : loserM.team1Id;
+          const nextTeam2Id = m.loserToSlot === 2 ? loserId : loserM.team2Id;
+          if (loserM.team1Id !== nextTeam1Id || loserM.team2Id !== nextTeam2Id) {
+            updatedMatchesMap.set(
+              loserM.id,
+              resetMatchForParticipants(loserM, nextTeam1Id, nextTeam2Id)
+            );
+            hasChanges = true;
           }
         }
       }

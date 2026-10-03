@@ -1,4 +1,5 @@
 import { Match, Settings, Standing, Team } from '../types';
+import { evaluateMatch, getCountedSetScores } from './score';
 
 /**
  * 予選リーグの順位を計算（各リーグ内で独立。同着なし）
@@ -11,9 +12,20 @@ import { Match, Settings, Standing, Team } from '../types';
 export function computeLeagueStandings(
   teams: Team[],
   matches: Match[],
-  _settings?: Settings
+  settings?: Settings
 ): Standing[] {
-  const leagueMatches = matches.filter((m) => m.round === 'league' && m.status === 'completed');
+  const leagueMatches = matches.filter((match) => {
+    if (match.round !== 'league') return false;
+    return settings
+      ? evaluateMatch(match, settings).status === 'completed'
+      : match.status === 'completed';
+  });
+  const winnerByMatchId = new Map(
+    leagueMatches.map((match) => [
+      match.id,
+      settings ? evaluateMatch(match, settings).winnerId : match.winnerId,
+    ])
+  );
 
   // 各チームの統計情報マップ
   const statsMap = new Map<string, {
@@ -49,14 +61,18 @@ export function computeLeagueStandings(
       s1.played++;
       s2.played++;
 
-      s1.setsWon += match.team1Sets;
-      s1.setsLost += match.team2Sets;
-      s2.setsWon += match.team2Sets;
-      s2.setsLost += match.team1Sets;
+      const outcome = settings ? evaluateMatch(match, settings) : null;
+      const team1Sets = outcome?.team1Sets ?? match.team1Sets;
+      const team2Sets = outcome?.team2Sets ?? match.team2Sets;
+      s1.setsWon += team1Sets;
+      s1.setsLost += team2Sets;
+      s2.setsWon += team2Sets;
+      s2.setsLost += team1Sets;
 
       let matchPts1 = 0;
       let matchPts2 = 0;
-      for (const set of match.sets) {
+      const countedSets = settings ? getCountedSetScores(match, settings) : match.sets;
+      for (const set of countedSets) {
         if (set.team1 !== null && set.team2 !== null) {
           matchPts1 += set.team1;
           matchPts2 += set.team2;
@@ -67,10 +83,11 @@ export function computeLeagueStandings(
       s2.pointsFor += matchPts2;
       s2.pointsAgainst += matchPts1;
 
-      if (match.winnerId === match.team1Id) {
+      const winnerId = winnerByMatchId.get(match.id);
+      if (winnerId === match.team1Id) {
         s1.win++;
         s2.loss++;
-      } else if (match.winnerId === match.team2Id) {
+      } else if (winnerId === match.team2Id) {
         s2.win++;
         s1.loss++;
       }
@@ -82,7 +99,7 @@ export function computeLeagueStandings(
   const pools = new Map<string, string[]>();
 
   teams.forEach((team, idx) => {
-    const fallbackPool = defaultPools[idx % Math.max(1, _settings?.leagueCount || 5)];
+      const fallbackPool = defaultPools[idx % Math.max(1, settings?.leagueCount || 5)];
     const pool = team.pool ? team.pool : fallbackPool;
     if (!pools.has(pool)) {
       pools.set(pool, []);
@@ -129,8 +146,9 @@ export function computeLeagueStandings(
       let aH2hWins = 0;
       let bH2hWins = 0;
       for (const m of h2h) {
-        if (m.winnerId === aId) aH2hWins++;
-        if (m.winnerId === bId) bH2hWins++;
+        const winnerId = winnerByMatchId.get(m.id);
+        if (winnerId === aId) aH2hWins++;
+        if (winnerId === bId) bH2hWins++;
       }
       if (aH2hWins !== bH2hWins) {
         return bH2hWins - aH2hWins;
@@ -260,25 +278,28 @@ export function computeStandings(
   const teamMap = new Map(teams.map((t) => [t.id, t]));
 
   // 決勝または3位決定戦、または準決勝のいずれかが完了している場合、判明している最終順位を生成
-  const isFinalCompleted = finalMatch && finalMatch.status === 'completed' && finalMatch.winnerId;
-  const isThirdCompleted =
-    thirdPlaceMatch && thirdPlaceMatch.status === 'completed' && thirdPlaceMatch.winnerId;
+  const finalOutcome = finalMatch ? evaluateMatch(finalMatch, settings) : null;
+  const thirdOutcome = thirdPlaceMatch ? evaluateMatch(thirdPlaceMatch, settings) : null;
+  const semiAOutcome = semiA7 ? evaluateMatch(semiA7, settings) : null;
+  const semiBOutcome = semiB7 ? evaluateMatch(semiB7, settings) : null;
+  const isFinalCompleted = finalOutcome?.status === 'completed' && finalOutcome.winnerId;
+  const isThirdCompleted = thirdOutcome?.status === 'completed' && thirdOutcome.winnerId;
   const isSemisCompleted =
-    semiA7 && semiA7.status === 'completed' && semiA7.winnerId &&
-    semiB7 && semiB7.status === 'completed' && semiB7.winnerId;
+    semiAOutcome?.status === 'completed' && semiAOutcome.winnerId &&
+    semiBOutcome?.status === 'completed' && semiBOutcome.winnerId;
 
   if (isFinalCompleted || isThirdCompleted || isSemisCompleted) {
-    const winnerId = isFinalCompleted ? finalMatch.winnerId : null;
+    const winnerId = isFinalCompleted ? finalOutcome.winnerId : null;
     const runnerUpId =
-      isFinalCompleted && finalMatch.winnerId
-        ? finalMatch.winnerId === finalMatch.team1Id
+      isFinalCompleted && finalOutcome.winnerId
+        ? finalOutcome.winnerId === finalMatch.team1Id
           ? finalMatch.team2Id
           : finalMatch.team1Id
         : null;
 
-    let thirdWinnerId = isThirdCompleted ? thirdPlaceMatch.winnerId : null;
+    let thirdWinnerId = isThirdCompleted ? thirdOutcome.winnerId : null;
     let fourthId =
-      isThirdCompleted && thirdPlaceMatch.winnerId
+      isThirdCompleted && thirdOutcome.winnerId
         ? thirdWinnerId === thirdPlaceMatch.team1Id
           ? thirdPlaceMatch.team2Id
           : thirdPlaceMatch.team1Id
@@ -286,8 +307,8 @@ export function computeStandings(
 
     // 3位決定戦が無い場合は、準決勝敗者2チーム（ベスト4）から決定（予選順位・得失点差上位を3位とする）
     if (!thirdWinnerId && isSemisCompleted) {
-      const loserA7 = semiA7.winnerId === semiA7.team1Id ? semiA7.team2Id : semiA7.team1Id;
-      const loserB7 = semiB7.winnerId === semiB7.team1Id ? semiB7.team2Id : semiB7.team1Id;
+      const loserA7 = semiAOutcome.winnerId === semiA7.team1Id ? semiA7.team2Id : semiA7.team1Id;
+      const loserB7 = semiBOutcome.winnerId === semiB7.team1Id ? semiB7.team2Id : semiB7.team1Id;
       const rankA = leagueStandings.findIndex((s) => s.teamId === loserA7);
       const rankB = leagueStandings.findIndex((s) => s.teamId === loserB7);
       if (rankA !== -1 && rankB !== -1 && rankA <= rankB) {
@@ -353,10 +374,11 @@ export function computeStandings(
  */
 export function computeExchangeLeagueStandings(
   teams: Team[],
-  matches: Match[]
+  matches: Match[],
+  settings: Settings
 ): Standing[] {
   const exchangeMatches = matches.filter(
-    (m) => m.round === 'exchange_league' && m.status === 'completed'
+    (m) => m.round === 'exchange_league' && evaluateMatch(m, settings).status === 'completed'
   );
 
   const teamMap = new Map(teams.map((t) => [t.id, t]));
@@ -399,14 +421,15 @@ export function computeExchangeLeagueStandings(
 
     s1.played++;
     s2.played++;
-    s1.setsWon += m.team1Sets;
-    s1.setsLost += m.team2Sets;
-    s2.setsWon += m.team2Sets;
-    s2.setsLost += m.team1Sets;
+    const outcome = evaluateMatch(m, settings);
+    s1.setsWon += outcome.team1Sets;
+    s1.setsLost += outcome.team2Sets;
+    s2.setsWon += outcome.team2Sets;
+    s2.setsLost += outcome.team1Sets;
 
     let pts1 = 0;
     let pts2 = 0;
-    for (const set of m.sets) {
+    for (const set of getCountedSetScores(m, settings)) {
       if (set.team1 !== null && set.team2 !== null) {
         pts1 += set.team1;
         pts2 += set.team2;
@@ -417,10 +440,10 @@ export function computeExchangeLeagueStandings(
     s2.pointsFor += pts2;
     s2.pointsAgainst += pts1;
 
-    if (m.winnerId === m.team1Id) {
+    if (outcome.winnerId === m.team1Id) {
       s1.win++;
       s2.loss++;
-    } else if (m.winnerId === m.team2Id) {
+    } else if (outcome.winnerId === m.team2Id) {
       s2.win++;
       s1.loss++;
     }
