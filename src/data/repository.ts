@@ -291,6 +291,40 @@ export async function getOnce(options: { discardPending?: boolean; requireRemote
       const snapshot = await getDoc(docRef);
       if (snapshot.exists()) {
         const data = validateAppState(snapshot.data());
+
+        // 旧版はFirestore保存前に端末のlocalStorageを更新していたため、
+        // 書き込みに失敗した入力がクラウドより新しい状態で残っていることがある。
+        // 先にクラウド状態で上書きせず、同じ内容なら再試行し、競合なら保留コピーとして残す。
+        if (!options.discardPending) {
+          const localState = loadLocalIfPresent();
+          const localUpdatedAt = localState ? Date.parse(localState.updatedAt) : Number.NaN;
+          const remoteUpdatedAt = Date.parse(data.updatedAt);
+          if (
+            localState &&
+            !hasSameTournamentData(localState, data) &&
+            Number.isFinite(localUpdatedAt) &&
+            Number.isFinite(remoteUpdatedAt) &&
+            localUpdatedAt >= remoteUpdatedAt
+          ) {
+            try {
+              return await save(localState, null);
+            } catch (recoveryError) {
+              try {
+                if (getPendingLocalSave()) {
+                  // TournamentContext がクラウド状態と照合し、競合を画面に表示する。
+                  return data;
+                }
+              } catch (pendingError) {
+                // 複数または不正な保留データは消さず、端末側の入力を表示する。
+                console.error('Legacy local tournament data needs manual review:', pendingError);
+                return localState;
+              }
+              console.error('Legacy local tournament data could not be synced:', recoveryError);
+              return localState;
+            }
+          }
+        }
+
         saveLocal(data);
         if (options.discardPending) clearPendingLocalSave({ all: true });
         return data;
@@ -386,6 +420,16 @@ function saveLocal(state: AppState): void {
     localStorage.setItem(LOCAL_STORAGE_KEY, JSON.stringify(state));
   } catch (e) {
     console.error('Failed to save to local storage', e);
+  }
+}
+
+function loadLocalIfPresent(): AppState | null {
+  try {
+    const raw = localStorage.getItem(LOCAL_STORAGE_KEY);
+    return raw ? validateAppState(JSON.parse(raw)) : null;
+  } catch (error) {
+    console.error('Failed to inspect the local tournament recovery copy:', error);
+    return null;
   }
 }
 

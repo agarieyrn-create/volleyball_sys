@@ -8,9 +8,9 @@ vi.mock('firebase/firestore', () => ({
   runTransaction: vi.fn(),
 }));
 
-import { runTransaction } from 'firebase/firestore';
+import { getDoc, runTransaction } from 'firebase/firestore';
 import { DEFAULT_APP_STATE } from './defaults';
-import { clearPendingLocalSave, getPendingLocalSave, save } from './repository';
+import { clearPendingLocalSave, getOnce, getPendingLocalSave, save } from './repository';
 
 class MemoryStorage implements Storage {
   private values = new Map<string, string>();
@@ -29,6 +29,7 @@ describe('repository offline save recovery', () => {
     vi.stubGlobal('sessionStorage', new MemoryStorage());
     vi.stubGlobal('crypto', { randomUUID: () => 'test-tab' });
     clearPendingLocalSave({ all: true });
+    vi.mocked(getDoc).mockReset();
     vi.mocked(runTransaction).mockReset();
   });
 
@@ -58,6 +59,38 @@ describe('repository offline save recovery', () => {
     expect(getPendingLocalSave()?.state.matches).toEqual(DEFAULT_APP_STATE.matches);
     clearPendingLocalSave();
     expect(getPendingLocalSave()).toBeNull();
+  });
+
+  it('preserves a newer legacy local edit when the cloud still has the older state', async () => {
+    const remoteState = {
+      ...structuredClone(DEFAULT_APP_STATE),
+      updatedAt: '2026-10-01T10:00:00.000Z',
+      settings: { ...DEFAULT_APP_STATE.settings, name: '共有済み大会名' },
+    };
+    const localState = {
+      ...remoteState,
+      updatedAt: '2026-10-03T10:00:00.000Z',
+      settings: { ...remoteState.settings, name: '端末に残った未同期の大会名' },
+    };
+    localStorage.setItem('volleyball_tournament_main_state', JSON.stringify(localState));
+    vi.mocked(getDoc).mockResolvedValue({
+      exists: () => true,
+      data: () => remoteState,
+    } as never);
+    vi.mocked(runTransaction).mockImplementation(async (_db, updateFunction) => {
+      const transaction = {
+        get: async () => ({ exists: () => true, data: () => remoteState }),
+        set: vi.fn(),
+      };
+      return updateFunction(transaction as never);
+    });
+
+    const loaded = await getOnce();
+
+    expect(loaded.settings.name).toBe('共有済み大会名');
+    expect(getPendingLocalSave()?.state.settings.name).toBe('端末に残った未同期の大会名');
+    expect(JSON.parse(localStorage.getItem('volleyball_tournament_main_state')!).settings.name)
+      .toBe('端末に残った未同期の大会名');
   });
 
   it('keeps multiple tab pending copies untouched and requires explicit review', () => {
