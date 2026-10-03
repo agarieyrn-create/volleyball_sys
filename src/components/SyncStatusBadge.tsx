@@ -7,7 +7,7 @@ interface SyncStatusBadgeProps {
 }
 
 export const SyncStatusBadge: React.FC<SyncStatusBadgeProps> = () => {
-  const { state, deviceLabel, updateDeviceLabel, saveNow, reloadLatest, syncError } = useTournament();
+  const { state, deviceLabel, updateDeviceLabel, saveNow, reloadLatest, syncError, syncStatus } = useTournament();
   const [isModalOpen, setIsModalOpen] = useState<boolean>(false);
   const [tempLabel, setTempLabel] = useState<string>(deviceLabel);
   const [isSaving, setIsSaving] = useState<boolean>(false);
@@ -42,17 +42,53 @@ export const SyncStatusBadge: React.FC<SyncStatusBadgeProps> = () => {
     ? new Date(state.updatedAt).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })
     : '--:--:--';
 
+  const statusLabels = {
+    checking: '同期確認中',
+    saving: 'クラウド保存中',
+    saved: 'クラウド保存済み',
+    local: '端末内保存',
+    error: '同期エラー',
+  } as const;
+  const statusStyles = {
+    checking: 'bg-amber-500/10 dark:bg-amber-500/20 text-amber-700 dark:text-amber-300 border-amber-500/30 hover:bg-amber-500/20',
+    saving: 'bg-sky-500/10 dark:bg-sky-500/20 text-sky-700 dark:text-sky-300 border-sky-500/30 hover:bg-sky-500/20',
+    saved: 'bg-emerald-500/10 dark:bg-emerald-500/20 text-emerald-700 dark:text-emerald-300 border-emerald-500/30 hover:bg-emerald-500/20',
+    local: 'bg-zinc-500/10 dark:bg-zinc-500/20 text-zinc-700 dark:text-zinc-300 border-zinc-500/30 hover:bg-zinc-500/20',
+    error: 'bg-rose-500/10 dark:bg-rose-500/20 text-rose-700 dark:text-rose-300 border-rose-500/30 hover:bg-rose-500/20',
+  } as const;
+  const statusDotStyles = {
+    checking: 'bg-amber-500 animate-pulse',
+    saving: 'bg-sky-500 animate-pulse',
+    saved: 'bg-emerald-500',
+    local: 'bg-zinc-500',
+    error: 'bg-rose-500',
+  } as const;
+  const statusMessages = {
+    checking: '共有データの接続状態を確認しています。',
+    saving: '入力した内容をクラウドに保存しています。保存完了まで画面を閉じずにお待ちください。',
+    saved: '変更はクラウドに保存済みです。閲覧ページにも自動反映されます。',
+    local: 'クラウド未設定のため、このブラウザー内だけに保存しています。',
+    error: 'クラウド保存を確認できていません。未同期データはこの端末に保持しています。',
+  } as const;
+  const statusTone = {
+    checking: 'bg-amber-50 dark:bg-amber-950/40 border-amber-200 dark:border-amber-800 text-amber-900 dark:text-amber-200',
+    saving: 'bg-sky-50 dark:bg-sky-950/40 border-sky-200 dark:border-sky-800 text-sky-900 dark:text-sky-200',
+    saved: 'bg-emerald-50 dark:bg-emerald-950/40 border-emerald-200 dark:border-emerald-800 text-emerald-900 dark:text-emerald-200',
+    local: 'bg-zinc-50 dark:bg-zinc-900 border-zinc-200 dark:border-zinc-700 text-zinc-800 dark:text-zinc-200',
+    error: 'bg-rose-50 dark:bg-rose-950/40 border-rose-200 dark:border-rose-800 text-rose-900 dark:text-rose-200',
+  } as const;
+
   return (
     <>
       <div className="inline-flex items-center gap-1.5 shrink-0 whitespace-nowrap">
         <button
           type="button"
           onClick={handleOpenModal}
-          className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold border transition-colors cursor-pointer shrink-0 whitespace-nowrap ${syncError ? 'bg-rose-500/10 dark:bg-rose-500/20 text-rose-700 dark:text-rose-300 border-rose-500/30 hover:bg-rose-500/20' : 'bg-emerald-500/10 dark:bg-emerald-500/20 text-emerald-700 dark:text-emerald-300 border-emerald-500/30 hover:bg-emerald-500/20'}`}
-          title="複数端末のクラウド同期状況を確認・端末名を変更"
+          className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-semibold border transition-colors cursor-pointer shrink-0 whitespace-nowrap ${statusStyles[syncError ? 'error' : syncStatus]}`}
+          title="保存状況と最終更新時刻を確認・端末名を変更"
         >
-          <span className={`relative inline-flex h-2 w-2 shrink-0 rounded-full ${syncError ? 'bg-rose-500' : 'bg-emerald-500'}`} />
-          <span className="whitespace-nowrap shrink-0">{syncError ? '同期エラー' : isFirebaseConfigured ? 'クラウド同期中' : 'ローカル同期'}</span>
+          <span className={`relative inline-flex h-2 w-2 shrink-0 rounded-full ${statusDotStyles[syncError ? 'error' : syncStatus]}`} />
+          <span className="whitespace-nowrap shrink-0">{statusLabels[syncError ? 'error' : syncStatus]}</span>
           {deviceLabel && (
             <span className="hidden sm:inline text-[10px] px-1.5 py-0.2 rounded bg-emerald-600/20 text-emerald-800 dark:text-emerald-200 font-mono shrink-0 whitespace-nowrap">
               {deviceLabel}
@@ -65,7 +101,7 @@ export const SyncStatusBadge: React.FC<SyncStatusBadgeProps> = () => {
           onClick={handleManualSync}
           disabled={isSaving}
           className="p-1 rounded-lg text-xs opacity-70 hover:opacity-100 hover:bg-black/5 dark:hover:bg-white/10 transition-all cursor-pointer shrink-0 whitespace-nowrap"
-          title="今すぐクラウドに手動保存・再同期"
+          title={isFirebaseConfigured ? '今すぐクラウドに手動保存・再同期' : '端末内データを再保存'}
         >
           <span className={isSaving ? 'animate-spin inline-block' : ''}>🔄</span>
           {saveSuccess && <span className="ml-1 text-[10px] text-emerald-500 font-bold">済</span>}
@@ -92,13 +128,13 @@ export const SyncStatusBadge: React.FC<SyncStatusBadgeProps> = () => {
               </button>
             </div>
 
-            <div className="p-3.5 rounded-2xl bg-emerald-50 dark:bg-emerald-950/40 border border-emerald-200 dark:border-emerald-800 text-xs text-emerald-900 dark:text-emerald-200 space-y-1.5">
+            <div role="status" aria-live="polite" className={`p-3.5 rounded-2xl border text-xs space-y-1.5 ${statusTone[syncError ? 'error' : syncStatus]}`}>
               <div className="font-bold flex items-center gap-1.5">
-                <span className="h-2 w-2 rounded-full bg-emerald-500 animate-pulse" />
-                <span>Cloud Firestore リアルタイム接続中</span>
+                <span className={`h-2 w-2 rounded-full ${statusDotStyles[syncError ? 'error' : syncStatus]}`} />
+                <span>{statusLabels[syncError ? 'error' : syncStatus]}</span>
               </div>
               <p className="opacity-90 leading-relaxed">
-                審判スマホの得点入力、本部管理画面の変更、観客スマホの応援スタンプが、全ての端末・大型モニターにリアルタイム（約0.1〜0.3秒）で自動反映されます。
+                {statusMessages[syncError ? 'error' : syncStatus]}
               </p>
             </div>
 
