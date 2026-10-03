@@ -10,9 +10,12 @@ import {
   subscribe,
 } from '../data/repository';
 import { computeStandings } from '../logic/standings';
+import { isFirebaseConfigured } from '../data/firebase';
 import { AppState, Standing } from '../types';
 import { TournamentAction, tournamentReducer } from './reducer';
 import { hasSameTournamentData, mergeConcurrentStates, StateConflictError } from '../data/stateMerge';
+
+export type SyncStatus = 'checking' | 'saving' | 'saved' | 'local' | 'error';
 
 interface TournamentContextType {
   state: AppState;
@@ -24,6 +27,7 @@ interface TournamentContextType {
   saveNow: () => Promise<void>;
   reloadLatest: () => Promise<void>;
   syncError: string | null;
+  syncStatus: SyncStatus;
 }
 
 const TournamentContext = createContext<TournamentContextType | undefined>(undefined);
@@ -33,6 +37,7 @@ export const TournamentProvider: React.FC<{ children: React.ReactNode }> = ({ ch
   const [isLoaded, setIsLoaded] = useState<boolean>(false);
   const [deviceLabel, setDeviceLabelState] = useState<string>('');
   const [syncError, setSyncError] = useState<string | null>(null);
+  const [syncStatus, setSyncStatus] = useState<SyncStatus>(isFirebaseConfigured ? 'checking' : 'local');
 
   const currentStateRef = useRef<AppState>(state);
   currentStateRef.current = state;
@@ -40,6 +45,7 @@ export const TournamentProvider: React.FC<{ children: React.ReactNode }> = ({ ch
   const isSelfSavingRef = useRef<boolean>(false);
   const syncBlockedRef = useRef<boolean>(false);
   const saveQueueRef = useRef<Promise<void>>(Promise.resolve());
+  const pendingSaveCountRef = useRef<number>(0);
 
   // 端末ラベルの初期化
   useEffect(() => {
@@ -52,6 +58,8 @@ export const TournamentProvider: React.FC<{ children: React.ReactNode }> = ({ ch
   };
 
   const persistState = useCallback((candidate: AppState, force = false): Promise<AppState> => {
+    pendingSaveCountRef.current += 1;
+    setSyncStatus('saving');
     const operation = saveQueueRef.current.then(async () => {
       if (syncBlockedRef.current) {
         throw new StateConflictError('大会データ (再読み込みが必要です)');
@@ -70,6 +78,7 @@ export const TournamentProvider: React.FC<{ children: React.ReactNode }> = ({ ch
         return savedState;
       } catch (error) {
         const message = error instanceof Error ? error.message : 'クラウド保存に失敗しました。';
+        setSyncStatus('error');
         if (error instanceof StateConflictError) {
           syncBlockedRef.current = true;
           setSyncError(`${message} 入力内容を控え、最新データを再読み込みしてください。`);
@@ -81,8 +90,16 @@ export const TournamentProvider: React.FC<{ children: React.ReactNode }> = ({ ch
         isSelfSavingRef.current = false;
       }
     });
-    saveQueueRef.current = operation.then(() => undefined, () => undefined);
-    return operation;
+    const trackedOperation = operation.finally(() => {
+      pendingSaveCountRef.current = Math.max(0, pendingSaveCountRef.current - 1);
+      if (pendingSaveCountRef.current > 0) {
+        setSyncStatus((current) => current === 'error' ? current : 'saving');
+      } else {
+        setSyncStatus((current) => current === 'error' ? current : isFirebaseConfigured ? 'saved' : 'local');
+      }
+    });
+    saveQueueRef.current = trackedOperation.then(() => undefined, () => undefined);
+    return trackedOperation;
   }, []);
 
   // 初回データ取得
@@ -130,6 +147,7 @@ export const TournamentProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       console.error('Initial tournament load failed:', error);
       syncBlockedRef.current = true;
       setSyncError(error instanceof Error ? error.message : '大会データを読み込めませんでした。');
+      setSyncStatus('error');
       dispatch({ type: 'INIT', payload: DEFAULT_APP_STATE });
       setIsLoaded(true);
     });
@@ -178,7 +196,14 @@ export const TournamentProvider: React.FC<{ children: React.ReactNode }> = ({ ch
           setSyncError(`${message} 入力内容を控え、最新データを再読み込みしてください。`);
         }
       }
-    }, setSyncError);
+    }, (message) => {
+      setSyncError(message);
+      setSyncStatus('error');
+    }, () => {
+      if (pendingSaveCountRef.current === 0) {
+        setSyncStatus((current) => current === 'error' ? current : 'saved');
+      }
+    });
 
     return () => {
       unsubscribe();
@@ -204,11 +229,13 @@ export const TournamentProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       lastPersistedStateRef.current = latest;
       syncBlockedRef.current = false;
       setSyncError(null);
+      setSyncStatus(isFirebaseConfigured ? 'saved' : 'local');
       dispatch({ type: 'INIT', payload: latest });
       setIsLoaded(true);
     } catch (error) {
       const message = error instanceof Error ? error.message : '大会データを再読み込みできませんでした。';
       setSyncError(message);
+      setSyncStatus('error');
       throw error;
     }
   };
@@ -229,8 +256,9 @@ export const TournamentProvider: React.FC<{ children: React.ReactNode }> = ({ ch
       saveNow,
       reloadLatest,
       syncError,
+      syncStatus,
     }),
-    [state, standings, isLoaded, deviceLabel, syncError]
+    [state, standings, isLoaded, deviceLabel, syncError, syncStatus]
   );
 
   return <TournamentContext.Provider value={value}>{children}</TournamentContext.Provider>;
